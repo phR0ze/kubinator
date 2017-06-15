@@ -1,5 +1,5 @@
 # kubinator
-Deployment automation for Kubernetes
+Deployment automation for Kubernetes  
 Note: this is for ***development only*** and not production and comes with absolutely no guarantees or
 suppport of any kind.
 
