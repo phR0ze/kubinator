@@ -1,5 +1,5 @@
 # kubinator
-Deployment scripts for K8s cluster
+Deployment scripts for K8s cluster 
 Note: this is for ***development only*** and not production and comes with absolutely no guarantees or
 suppport of any kind.
 
