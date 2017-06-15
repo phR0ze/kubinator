@@ -3,6 +3,8 @@ Deployment automation for Kubernetes
 Note: this is for ***development only*** and not production and comes with absolutely no guarantees or
 suppport of any kind.
 
+[![Build Status](https://travis-ci.org/phR0ze/kubinator.svg)](https://travis-ci.org/phR0ze/kubinator)
+
 ## Install Dependencies
 There is no Linux distribution requirements here other than something that support
 ***VirtualBox*** and ***Ruby***
