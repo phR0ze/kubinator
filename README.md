@@ -1,12 +1,14 @@
 # kubinator
-Deployment automation for Kubernetes
+Deployment scripts for K8s cluster
+Note: this is for ***development only*** and not production and comes with absolutely no guarantees or
+suppport of any kind.
 
 ## Install Dependencies
-There is no Linux distribution requirements here other than something that supports
+There is no Linux distribution requirements here other than something that support
 ***VirtualBox*** and ***Ruby***
 
 ### Ubuntu Dependencies
-I've validated with Ubuntu 16.04 and the following dependency versions
+I've validated with Ubuntu 16.04 and the following versions
 * ruby 2.3.1
 * vagrant 1.8.1
 * virtualbox 5.0.32
@@ -51,8 +53,8 @@ sudo apt-get install ruby-dev
 2. Install ***helm***
 
     ```bash
-    curl -LO https://storage.googleapis.com/kubernetes-helm/helm-v2.4.2-linux-amd64.tar.gz
-    tar xvzf helm-v2.4.2-linux-amd64.tar.gz
+    curl -LO https://storage.googleapis.com/kubernetes-helm/helm-v2.3.1-linux-amd64.tar.gz
+    tar xvzf helm-v2.3.1-linux-amd64.tar.gz
     chmod +x linux-amd64/helm
     sudo mv linux-amd64/helm /usr/local/bin/
     ```
@@ -60,6 +62,7 @@ sudo apt-get install ruby-dev
 ## Deploy Kubernetes
 
 1. Download latest vagrant box  
+    https://hpe.sharepoint.com/teams/NCSLA/Shared%20Documents/images
 
 2. Deploy vagrant nodes
     ```bash

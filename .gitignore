@@ -1,0 +1,7 @@
+*.swp
+.vagrant
+mkmf.log
+kube.conf
+k8snode*.box
+Vagrantfile
+logging-*
