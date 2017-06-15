@@ -1,16 +1,16 @@
 #!/usr/bin/env ruby
-require 'fileutils'         # advanced file utils: FileUtils
-require 'mkmf'              # system utils: find_executable
-require 'optparse'          # cmd line options: OptionParser
-require 'open3'             # Better system commands
-require 'rubygems/package'  # tar
-require 'yaml'              # YAML
+require 'fileutils'             # advanced file utils: FileUtils
+require 'mkmf'                  # system utils: find_executable
+require 'optparse'              # cmd line options: OptionParser
+require 'open3'                 # Better system commands
+require 'rubygems/package'      # tar
+require 'yaml'                  # YAML
 
 # Gems that need to be installed
 begin
-  require 'colorize'        # color output: colorize
-  require 'net/ssh'         # ssh integration: Net::SSH
-  require 'net/scp'         # scp integration: Net::SCP
+  require 'colorize'            # color output: colorize
+  require 'net/ssh'             # ssh integration: Net::SSH
+  require 'net/scp'             # scp integration: Net::SCP
 rescue Exception => e
   mod = e.message.split(' ').last.sub('/', '-')
   !puts("Error: install missing module with 'sudo gem install #{mod} --no-user-install'") and exit
