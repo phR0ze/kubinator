@@ -26,6 +26,7 @@ require 'optparse'              # cmd line options: OptionParser
 require 'open3'                 # Better system commands
 require 'rubygems/package'      # tar
 require 'yaml'                  # YAML
+require_relative 'lib/core'
 
 # Gems that need to be installed
 begin
@@ -79,10 +80,6 @@ class Kubinator
   def deploy_nodes(nodes, box, cpu:nil, ram:nil)
     puts("#{'-' * 80}\nDeploying layer '#{box}'\n#{'-' * 80}".colorize(:yellow))
 
-    # Set defaults if not given
-    cpu = cpu || 2
-    ram = ram || 2048
-
     # Validate vagrant environment
     #---------------------------------------------------------------------------
     puts("Validating the environment for the correct vagrant tooling".colorize(:cyan))
@@ -127,24 +124,24 @@ class Kubinator
         host: "#{@host}#{node}",
         ip: "#{@netip[0..-2]}#{node}/24",
         box: box,
-        cpus: cpu,
-        ram: ram,
+        cpus: cpu || 2,
+        ram: ram || 2048,
         vram: 8,
+        net: @netname,
         v3d: 'off',
-        ipv6: false
+        proxy: @proxyenv['http_proxy'],
+        no_proxy: @proxyenv['no_proxy'],
+        ipv6: nil
       }
       specs << spec
       puts("Generating node: #{spec.to_s}".colorize(:cyan))
     end
 
     # Read in the template file and write out with ips
-    lines = nil
-    File.open('vagrant.tpl', 'r+') do |f|
-      lines = f.readlines
-      cut = lines.find_index{|x| x =~ /no_proxy.*/}
-      lines = ['nodes = ['] + specs.map{|x| "  #{x.to_s},"} + [']'] + lines[cut..-1]
-    end
-    File.open('Vagrantfile', 'w'){|f| f.puts(lines)}
+    FileUtils.cp('vagrant.tpl', 'Vagrantfile')
+    vars = OpenStruct.new()
+    vars.nodes = specs.map{|x| '  ' + x.to_s} * ",\n"
+    resolve('vagrant.tpl', vars)
 
     # Initialize vagrant box
     #-----------------------------------------------------------------------
@@ -467,6 +464,41 @@ class Kubinator
     return ips
   end
 
+  # Resolve template
+  # Params:
+  # +file+:: file to resolve templates for
+  # +vars+:: hash or ostruct templating variables to use while resolving
+  # +returns+:: true on change
+  def resolve(file, vars)
+    changed = false
+
+    begin
+      data = nil
+      File.open(file, 'r+') do |f|
+        data = f.read
+
+        # Resolve templates
+        _data = data.erb(vars)
+
+        # Determine if file changed
+        changed = Digest::MD5.hexdigest(data) != Digest::MD5.hexdigest(_data)
+
+        # Truncate then write out new content
+        if changed
+          f.seek(0)
+          f.truncate(0)
+          f.puts(_data)
+        end
+      end
+    rescue
+      # Revert back to the original incase of failure
+      File.open(file, 'w'){|f| f << data} if data
+      raise
+    end
+
+    return changed
+  end
+
   # Run a system command
   # ==== Attributes
   # * +cmd+ - cmd to execute
@@ -503,7 +535,7 @@ end
 opts = {}
 app = 'kubinator'
 k8sver = '1.6.2'
-nodever = '1.0.156'
+nodever = '0.0.103'
 title = "#{app}_v#{k8sver}"
 
 # Configure command line options
@@ -519,8 +551,8 @@ HELP
 optparser = OptionParser.new do |parser|
   banner = "#{title}\n#{'-' * 80}\n".colorize(:yellow)
   examples = "Examples:\n".colorize(:green)
-  examples += "Deploy nodes: ./#{app}.rb deploy --nodes=10,11,12 --box=~/Downloads/k8snode-#{nodever}.box\n".colorize(:green)
-  examples += "Deploy large nodes: ./#{app}.rb deploy --nodes=10,11,12 --box=~/Downloads/k8snode-#{nodever}.box --cpu=4 --ram=12288\n".colorize(:green)
+  examples += "Deploy nodes: ./#{app}.rb deploy --nodes=10,11,12 --box=cyberlinux-k8snode-#{nodever}.box\n".colorize(:green)
+  examples += "Deploy large nodes: ./#{app}.rb deploy --nodes=10,11,12 --box=cyberlinux-k8snode-#{nodever}.box --cpu=4 --ram=12288\n".colorize(:green)
   examples += "Deploy cluster: ./#{app}.rb deploy --cluster\n".colorize(:green)
   examples += "Deploy cluster with private registry: ./#{app}.rb deploy --cluster --registry <reg>\n".colorize(:green)
   examples += "Deploy loggers: ./#{app}.rb deploy --loggers=3\n".colorize(:green)

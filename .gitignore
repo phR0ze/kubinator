@@ -2,6 +2,6 @@
 .vagrant
 mkmf.log
 kube.conf
-k8snode*.box
+cyberlinux*.box
 Vagrantfile
 logging-*
