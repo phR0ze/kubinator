@@ -22,8 +22,8 @@
 
 require 'minitest/autorun'
 
-reduce_path = File.join(File.dirname(File.expand_path(__FILE__)), 'kubinator')
-load reduce_path
+kubinator_path = File.join(File.dirname(File.expand_path(__FILE__)), '../kubinator')
+load kubinator_path
 
 class TestKubinator < Minitest::Test
   def setup

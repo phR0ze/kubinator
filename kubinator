@@ -22,10 +22,11 @@
 
 require 'fileutils'             # advanced file utils: FileUtils
 require 'mkmf'                  # system utils: find_executable
-require 'optparse'              # cmd line options: OptionParser
 require 'open3'                 # Better system commands
 require 'rubygems/package'      # tar
 require 'yaml'                  # YAML
+
+require_relative 'lib/cmds'
 require_relative 'lib/core'
 
 # Gems that need to be installed
@@ -532,94 +533,52 @@ end
 #-------------------------------------------------------------------------------
 # Main entry point
 #-------------------------------------------------------------------------------
-opts = {}
-app = 'kubinator'
-k8sver = '1.6.2'
-nodever = '0.0.103'
-title = "#{app}_v#{k8sver}"
-
-# Configure command line options
-#-------------------------------------------------------------------------------
-help = <<HELP
-Commands available for use:
-    deploy                           Deploy Kubernetes
-    cluster                          Kubernetes cluster control
-
-see './#{app}.rb COMMAND --help' for specific command info
-HELP
-
-optparser = OptionParser.new do |parser|
-  banner = "#{title}\n#{'-' * 80}\n".colorize(:yellow)
+if __FILE__ == $0
+  app = 'kubinator'
+  k8sver = '1.6.2'
+  nodever = '0.0.103'
+  kubinator = Kubinator.new(k8sver, nodever)
   examples = "Examples:\n".colorize(:green)
-  examples += "Deploy nodes: ./#{app}.rb deploy --nodes=10,11,12 --box=cyberlinux-k8snode-#{nodever}.box\n".colorize(:green)
-  examples += "Deploy large nodes: ./#{app}.rb deploy --nodes=10,11,12 --box=cyberlinux-k8snode-#{nodever}.box --cpu=4 --ram=12288\n".colorize(:green)
-  examples += "Deploy cluster: ./#{app}.rb deploy --cluster\n".colorize(:green)
+  examples += "Deploy nodes: ./#{app} deploy --nodes=10,11,12 --box=cyberlinux-k8snode-#{nodever}.box\n".colorize(:green)
+  examples += "Deploy large nodes: ./#{app} deploy --nodes=10,11,12 --box=cyberlinux-k8snode-#{nodever}.box --cpu=4 --ram=12288\n".colorize(:green)
+  examples += "Deploy cluster: ./#{app} deploy --cluster\n".colorize(:green)
   examples += "Deploy cluster with private registry: ./#{app}.rb deploy --cluster --registry <reg>\n".colorize(:green)
-  examples += "Deploy loggers: ./#{app}.rb deploy --loggers=3\n".colorize(:green)
-  examples += "Delete loggers: ./#{app}.rb delete --loggers=3\n".colorize(:green)
-  parser.banner = "#{banner}#{examples}\nUsage: ./#{app}.rb commands [options]"
-  parser.on('-h', '--help', 'Print command/options help') {|x| !puts(parser) and exit }
-  parser.separator(help)
+  examples += "Deploy loggers: ./#{app} deploy --loggers=3\n".colorize(:green)
+  examples += "Delete loggers: ./#{app} delete --loggers=3\n".colorize(:green)
+
+  opts = Cmds.new(app, k8sver, examples)
+  opts.add('deploy', 'Deploy Kubernetes', [
+    CmdOpt.new('--nodes=x,y,z', 'List of last octet IPs (e.g. 10,11,2) for nodes', type:Array),
+    CmdOpt.new('--box=BOX', 'Path to the vagrant box to use for the nodes', type:String),
+    CmdOpt.new('--cpu=CPU', 'Number of cpus to assign a new VM', type:Integer),
+    CmdOpt.new('--ram=RAM', 'Amount of ram to assign a new VM', type:Integer),
+    CmdOpt.new('--cluster', 'Deploy a Kubernetes cluster on the nodes'),
+    CmdOpt.new('--registry=REGISTRY', 'Authorize the given private registry', type:String),
+    CmdOpt.new('--loggers=NUM', 'Deploy a number of logger instances', type:Integer)
+  ])
+  opts.add('delete', 'Delete a number of logger instances', [
+    CmdOpt.new('--loggers=NUM', 'Delete a number of logger instances', type:Integer)
+  ])
+  opts.add('cluster', 'Kubernetes cluster control', [
+    CmdOpt.new('--init', 'Initialize the main k8s node'),
+    CmdOpt.new('--join', 'Join all the slave nodes to the cluster'),
+    CmdOpt.new('--dashboard', 'Install dashboard'),
+    CmdOpt.new('--helm', 'Install helm')
+  ])
+  opts.parse!
+
+  # Execute
+  puts(opts.banner)
+
+  # Deploy kubinator nodes
+  kubinator.deploy_nodes(opts[:nodes], opts[:box], cpu:opts[:cpu], ram:opts[:ram]) if opts[:nodes]
+
+  # Cluster kubinator nodes
+  ips = kubinator.getnodeips() if opts[:cluster]
+  kubinator.deploy_cluster(ips, init: opts[:init], join: opts[:join], dashboard: opts[:dashboard], helm: opts[:helm]) if opts[:cluster]
+
+  # Deploy/Delete loggers
+  kubinator.loggers(deploy: opts[:loggers_deploy], delete: opts[:loggers_delete]) if opts[:loggers_deploy] or opts[:loggers_delete]
 end
-
-optparser_cmds = {
-  'deploy' => [OptionParser.new{|parser|
-    parser.banner = "Usage: ./#{app}.rb deploy [options]"
-    parser.on('--nodes x,y,z', Array, 'List of last octet IPs (e.g. 10,11,2) for nodes') {|x| opts[:nodes] = x}
-    parser.on('--box BOX', 'Path to the vagrant box to use for the nodes') {|x| opts[:box] = x}
-    parser.on('--cpu CPU', 'Number of cpus to assign a new VM') {|x| opts[:cpu] = x}
-    parser.on('--ram RAM', 'Amount of ram to assign a new VM') {|x| opts[:ram] = x}
-    parser.on('--cluster', 'Deploy a Kubernetes cluster on the nodes') {|x| opts[:cluster] = x}
-    parser.on('--registry REGISTRY', 'Authorize the given private registry') {|x| opts[:registry] = x}
-    parser.on('--loggers NUM', Float, 'Deploy a number of logger instances') {|x| opts[:loggers_deploy] = x}
-  }],
-  'delete' => [OptionParser.new{|parser|
-    parser.banner = "Usage: ./#{app}.rb delete [options]"
-    parser.on('--loggers NUM', Float, 'Delete a number of logger instances') {|x| opts[:loggers_delete] = x}
-  }],
-  'cluster' => [OptionParser.new{|parser|
-    parser.banner = "Usage: ./#{app}.rb cluster [options]"
-    parser.on('--init', 'Initialize the main k8s node') {|x| opts[:init] = x}
-    parser.on('--join', 'Join all the slave nodes to the cluster') {|x| opts[:join] = x}
-    parser.on('--dashboard', 'Install dashboard') {|x| opts[:dashboard] = x}
-    parser.on('--helm', 'Install helm') {|x| opts[:helm] = x}
-  }]
-}
-
-# Evaluate command line args
-ARGV.clear and ARGV << '-h' if ARGV.empty? or not optparser_cmds[ARGV[0]]
-optparser.order!
-cmds = ARGV.select{|x| not x.include?('--')}
-ARGV.reject!{|x| not x.include?('--')}
-cmds.each{|x| !puts("Error: invalid command '#{x}'".colorize(:red)) and exit unless optparser_cmds[x]}
-cmds.each do |cmd|
-  begin
-    opts[cmd.to_sym] = true
-    optparser_cmds[cmd].first.order!
-  rescue OptionParser::InvalidOption => e
-    puts("Error: #{e}".colorize(:red))
-    !puts(optparser_cmds[cmd].first.help) and exit
-  end
-end
-
-# Check required options
-if ARGV.any?
-  !puts("Error: unhandled arguments #{ARGV}".colorize(:red)) and exit
-elsif opts[:nodes] and not opts[:box]
-  !puts("Error: '--box' is a required option".colorize(:red)) and exit
-elsif opts[:box] and not opts[:nodes]
-  !puts("Error: '--nodes' is a required option".colorize(:red)) and exit
-elsif opts[:cluster] or opts[:loggers] and not File.exist?('Vagrantfile')
-  !puts("Error: you must deploy the nodes first".colorize(:red)) and exit
-end
-
-#-------------------------------------------------------------------------------
-# Execute application
-#-------------------------------------------------------------------------------
-kubinator = Kubinator.new(k8sver, nodever)
-kubinator.deploy_nodes(opts[:nodes], opts[:box], cpu:opts[:cpu], ram:opts[:ram]) if opts[:nodes]
-ips = kubinator.getnodeips() if opts[:cluster]
-kubinator.deploy_cluster(ips, init: opts[:init], join: opts[:join], dashboard: opts[:dashboard], helm: opts[:helm]) if opts[:cluster]
-kubinator.loggers(deploy: opts[:loggers_deploy], delete: opts[:loggers_delete]) if opts[:loggers_deploy] or opts[:loggers_delete]
 
 # vim: ft=ruby:ts=2:sw=2:sts=2
