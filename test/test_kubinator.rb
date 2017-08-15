@@ -27,7 +27,7 @@ load kubinator_path
 
 class TestKubinator < Minitest::Test
   def setup
-    @kubinator = Kubinator.new
+    @kubinator = Kubinator.new('1.6.2', '0.0.104')
   end
 
   def test_kubinator
