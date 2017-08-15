@@ -45,7 +45,6 @@ class Kubinator
   # Initialize
   # ==== Attributes
   def initialize()
-    @k8sver = nil
 
     # Minimum versions
     @helmver = '2.3.1'
@@ -157,6 +156,14 @@ class Kubinator
 
     token = 'c74b2e.897db207c8e26de2'
 
+    # Determine k8s version
+    #---------------------------------------------------------------------------
+    k8sver = nil
+    Net::SSH.start(ips.first, @user, password:@pass, paranoid:false) do |ssh|
+      k8sver = ssh.exec!("sudo pacman -Q kubernetes-kubectl")[/\d+\.\d+\.\d+/]
+      puts("k8sver = #{k8sver}")
+    end
+
     # Validate the environment
     #---------------------------------------------------------------------------
     puts("Validating the environment for the correct k8s tooling".colorize(:cyan))
@@ -176,8 +183,8 @@ class Kubinator
       exit unless find_executable('kubectl')
     stdout, stderr, status = Open3.capture3("kubectl version")
     kubectlver = stdout[/GitVersion:\"v\d+\.\d+\.\d+/].split('v').last
-    !puts("Kubectl needs to be version #{@k8sver} or higher".colorize(:red)) and
-      exit unless Gem::Version.new(kubectlver) >= Gem::Version.new(@k8sver)
+    !puts("Kubectl needs to be version #{k8sver} or higher".colorize(:red)) and
+      exit unless Gem::Version.new(kubectlver) >= Gem::Version.new(k8sver)
     puts("Kubectl: #{kubectlver}".colorize(:green))
 
     # Validate that helm is installed on the path and a supported version
@@ -260,7 +267,7 @@ class Kubinator
 
           # Initialize master - pod-network injects the --cluster-cidr into kube-proxy
           puts("#{ips.first}: Initialize Master node...".colorize(:cyan))
-          cmd = "sudo kubeadm init --token=#{token} --kubernetes-version=v#{@k8sver} --apiserver-advertise-address=#{ips.first}"
+          cmd = "sudo kubeadm init --token=#{token} --kubernetes-version=v#{k8sver} --apiserver-advertise-address=#{ips.first}"
           ssh.exec!(cmd){|c,s,o|puts(o)}
           (1..10).each{|i| puts("Waiting for k8s networking to quiesce..#{i}"); sleep(1)}
           ssh.exec!("mkdir -p ~/.kube")
@@ -525,7 +532,7 @@ end
 #-------------------------------------------------------------------------------
 if __FILE__ == $0
   app = 'kubinator'
-  version = '1.6.2'
+  version = '1.0.0'
   kubinator = Kubinator.new
   examples = "Examples:\n".colorize(:green)
   examples += "Deploy nodes: ./#{app} deploy --nodes=10,11,12\n".colorize(:green)
