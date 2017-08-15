@@ -44,8 +44,7 @@ Vagrant.configure("2") do |config|
         vbox.customize(["modifyvm", :id, "--accelerate3d", node[:v3d]])
 
         # Configure Audio
-        audio_driver = RUBY_PLATFORM == 'x86_64-linux' ? 'alsa' : 'dsound'
-        vbox.customize(["modifyvm", :id, "--audio", audio_driver, "--audiocontroller", "ac97"])
+        vbox.customize(["modifyvm", :id, "--audio", 'alsa', "--audiocontroller", "ac97"])
 
         # Configure Networking
         vbox.customize(["modifyvm", :id, "--nic1", "nat"])
