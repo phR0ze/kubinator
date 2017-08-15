@@ -6,7 +6,7 @@ suppport of any kind.
 [![Build Status](https://travis-ci.org/phR0ze/kubinator.svg)](https://travis-ci.org/phR0ze/kubinator)
 
 ## Install Dependencies
-There is no Linux distribution requirements here other than something that support
+There is no Linux distribution requirements here other than something that supports
 ***VirtualBox*** and ***Ruby***
 
 ### Ubuntu Dependencies
@@ -64,7 +64,7 @@ sudo apt-get install ruby-dev
 ## Deploy Kubernetes
 
 1. Download latest vagrant box  
-    https://hpe.sharepoint.com/teams/NCSLA/Shared%20Documents/images
+    ...
 
 2. Deploy vagrant nodes
     ```bash

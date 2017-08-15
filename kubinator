@@ -23,6 +23,7 @@
 require 'fileutils'             # advanced file utils: FileUtils
 require 'mkmf'                  # system utils: find_executable
 require 'open3'                 # Better system commands
+require 'ostruct'               # OpenStruct
 require 'rubygems/package'      # tar
 require 'yaml'                  # YAML
 
@@ -142,7 +143,7 @@ class Kubinator
     FileUtils.cp('vagrant.tpl', 'Vagrantfile')
     vars = OpenStruct.new()
     vars.nodes = specs.map{|x| '  ' + x.to_s} * ",\n"
-    resolve('vagrant.tpl', vars)
+    resolve('Vagrantfile', vars)
 
     # Initialize vagrant box
     #-----------------------------------------------------------------------
@@ -536,7 +537,7 @@ end
 if __FILE__ == $0
   app = 'kubinator'
   k8sver = '1.6.2'
-  nodever = '0.0.103'
+  nodever = '0.0.104'
   kubinator = Kubinator.new(k8sver, nodever)
   examples = "Examples:\n".colorize(:green)
   examples += "Deploy nodes: ./#{app} deploy --nodes=10,11,12 --box=cyberlinux-k8snode-#{nodever}.box\n".colorize(:green)
