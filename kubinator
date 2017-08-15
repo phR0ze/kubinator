@@ -44,11 +44,8 @@ class Kubinator
 
   # Initialize
   # ==== Attributes
-  # * +k8sver+ - version of kubernetes we are working with
-  # * +nodever+ - version of vagrant box we are working with
-  def initialize(k8sver, nodever)
-    @k8sver = k8sver
-    @nodever = nodever
+  def initialize()
+    @k8sver = nil
 
     # Minimum versions
     @helmver = '2.3.1'
@@ -79,17 +76,12 @@ class Kubinator
   # * +box+ - vagrant box to deploy
   # * +cpu+ - number of cpus to give a VM
   # * +ram+ - amount of ram in mb to give a VM
-  def deploy_nodes(nodes, box, cpu:nil, ram:nil)
-    puts("#{'-' * 80}\nDeploying layer '#{box}'\n#{'-' * 80}".colorize(:yellow))
+  def deploy_nodes(nodes, box:nil, cpu:nil, ram:nil)
+    puts("#{'-' * 80}\nDeploying vagrant box...\n#{'-' * 80}".colorize(:yellow))
 
     # Validate vagrant environment
     #---------------------------------------------------------------------------
     puts("Validating the environment for the correct vagrant tooling".colorize(:cyan))
-
-    # Check that the given box is compatible
-    !puts("Please use compatible vagrant box version #{@nodever}".colorize(:red)) and
-      exit unless box.include?(@nodever)
-    puts("Box: #{box}".colorize(:green))
 
     # Check that vagrant is installed and the correct version
     !puts("Ensure 'vagrant' is installed and on the $PATH".colorize(:red)) and
@@ -107,11 +99,8 @@ class Kubinator
       exit unless Gem::Version.new(virtualboxver) >= Gem::Version.new(@virtualboxver)
     puts("Virtualbox: #{virtualboxver}".colorize(:green))
 
-    # Update vagrant registry and ensure host-only network exists
+    # Ensure host-only network exists
     #---------------------------------------------------------------------------
-    puts("Updating vagrant registry for '#{box}'".colorize(:cyan))
-    sys("vagrant box add #{@host} #{box} --force")
-
     config_network = "vboxmanage hostonlyif ipconfig #{@netname} -ip #{@netip} -netmask #{@netmask}"
     if not sys(config_network, die:false)
       sys("vboxmanage hostonlyif create")
@@ -125,7 +114,6 @@ class Kubinator
       spec = {
         host: "#{@host}#{node}",
         ip: "#{@netip[0..-2]}#{node}/24",
-        box: box,
         cpus: cpu || 2,
         ram: ram || 2048,
         vram: 8,
@@ -142,6 +130,7 @@ class Kubinator
     # Read in the template file and write out with ips
     FileUtils.cp('vagrant.tpl', 'Vagrantfile')
     vars = OpenStruct.new()
+    vars.boxver = box
     vars.nodes = specs.map{|x| '  ' + x.to_s} * ",\n"
     resolve('Vagrantfile', vars)
 
@@ -536,21 +525,20 @@ end
 #-------------------------------------------------------------------------------
 if __FILE__ == $0
   app = 'kubinator'
-  k8sver = '1.6.2'
-  nodever = '0.0.104'
-  kubinator = Kubinator.new(k8sver, nodever)
+  version = '1.6.2'
+  kubinator = Kubinator.new
   examples = "Examples:\n".colorize(:green)
-  examples += "Deploy nodes: ./#{app} deploy --nodes=10,11,12 --box=cyberlinux-k8snode-#{nodever}.box\n".colorize(:green)
-  examples += "Deploy large nodes: ./#{app} deploy --nodes=10,11,12 --box=cyberlinux-k8snode-#{nodever}.box --cpu=4 --ram=12288\n".colorize(:green)
+  examples += "Deploy nodes: ./#{app} deploy --nodes=10,11,12\n".colorize(:green)
+  examples += "Deploy large nodes: ./#{app} deploy --nodes=10,11,12 --cpu=4 --ram=12288\n".colorize(:green)
   examples += "Deploy cluster: ./#{app} deploy --cluster\n".colorize(:green)
   examples += "Deploy cluster with private registry: ./#{app}.rb deploy --cluster --registry <reg>\n".colorize(:green)
   examples += "Deploy loggers: ./#{app} deploy --loggers=3\n".colorize(:green)
   examples += "Delete loggers: ./#{app} delete --loggers=3\n".colorize(:green)
 
-  opts = Cmds.new(app, k8sver, examples)
+  opts = Cmds.new(app, version, examples)
   opts.add('deploy', 'Deploy Kubernetes', [
     CmdOpt.new('--nodes=x,y,z', 'List of last octet IPs (e.g. 10,11,2) for nodes', type:Array),
-    CmdOpt.new('--box=BOX', 'Path to the vagrant box to use for the nodes', type:String),
+    CmdOpt.new('--box=BOX', 'Box version to use for deployment', type:String),
     CmdOpt.new('--cpu=CPU', 'Number of cpus to assign a new VM', type:Integer),
     CmdOpt.new('--ram=RAM', 'Amount of ram to assign a new VM', type:Integer),
     CmdOpt.new('--cluster', 'Deploy a Kubernetes cluster on the nodes'),
@@ -573,7 +561,7 @@ if __FILE__ == $0
 
   # Deploy kubinator nodes
   if opts[:nodes]
-    kubinator.deploy_nodes(opts[:nodes], opts[:box], cpu:opts[:cpu], ram:opts[:ram])
+    kubinator.deploy_nodes(opts[:nodes], box:opts[:box], cpu:opts[:cpu], ram:opts[:ram])
   end
 
   # Cluster kubinator nodes

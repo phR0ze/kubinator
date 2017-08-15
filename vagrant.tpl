@@ -24,13 +24,14 @@ nodes = [
 ]
 
 Vagrant.configure("2") do |config|
+  <% if boxver %>config.vm.box_version = "<%= boxver %>"<% end %>
+  config.vm.box = "phR0ze/cyberlinux-k8snode"
   config.vm.synced_folder(".", "/vagrant", disabled:true)
 
   # Configure each node
   #-----------------------------------------------------------------------------
   nodes.each do |node|
     config.vm.define node[:host] do |conf|
-      conf.vm.box = node[:box]
       conf.vm.hostname = node[:host]
 
       # Custom VirtualBox settings

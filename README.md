@@ -63,30 +63,27 @@ sudo apt-get install ruby-dev
 
 ## Deploy Kubernetes
 
-1. Download latest vagrant box  
-    ...
-
-2. Deploy vagrant nodes
+1. Deploy vagrant nodes
     ```bash
-    ./kubinator.rb deploy --nodes=10,11,12 --box=k8snode-1.0.156.box
+    ./kubinator deploy --nodes=10,11,12
     ```
-    Note: i'd recommend taking a snapshot of your vms at this point
+    Note: it's recommended to take a snapshot after your vms deploy
 
-3. Add node IPs to no_proxy  
+2. Add node IPs to no_proxy  
     ```bash
     export no_proxy=$no_proxy,192.168.56.10,192.168.56.11,192.168.56.12
     ```
 
-4. Deploy K8s on vagrant nodes
+3. Deploy K8s on vagrant nodes
     ```bash
-    ./kubinator.rb deploy --cluster
+    ./kubinator deploy --cluster
     ```
     Note: i'd recommend taking another snapshot of your vms at this point
     Note: if this step seems to hang at the "waiting for the control plane
     to become ready" stage (i.e. more than 10min) ensure that your
     ***no_proxy*** includes your nodes as configured in the previous step.
 
-5. Access k8s cluster  
+4. Access k8s cluster  
     The deployment process will configure a ***kubernetes-admin@kubernetes*** context
     ```bash
     kubectl config use-context kubernetes-admin@kubernetes
