@@ -167,7 +167,7 @@ class Kubinator
     # Validate the environment
     #---------------------------------------------------------------------------
     puts("Validating the environment for the correct k8s tooling".colorize(:cyan))
-    !puts("Please unset uppercase proxy varables (HTTP_PROXY, HTTPS_PROXY, and NO_PROXY)".colorize(:red)) and
+    !puts("Please unset uppercase proxy variables (HTTP_PROXY, HTTPS_PROXY, and NO_PROXY)".colorize(:red)) and
       exit unless not [ENV['HTTP_PROXY'], ENV['HTTPS_PROXY'], ENV['NO_PROXY']].any?
 
     !puts("Please unset KUBECONFIG. We will be using 'contexts' instead".colorize(:red)) and
