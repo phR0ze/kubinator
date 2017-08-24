@@ -232,6 +232,23 @@ class Kubinator
           puts("#{ip}: Configured kernel params...skipped".colorize(:cyan))
         end
 
+        # Set docker storage-driver from overlay2 to overlay
+        driver = "overlay"
+        daemon_conf = '/etc/docker/daemon.json'
+        if not ssh.exec!("[ -e #{daemon_conf} ] && echo 'exists'").include?('exists')
+
+          # Configure docker storage-driver
+          docker_conf = "{\\\"storage-driver\\\":\\\"#{driver}\\\"}"
+          ssh.exec!("sudo bash -c 'mkdir -p /etc/docker/'")
+          ssh.exec!("sudo bash -c 'echo \"#{docker_conf}\" > /etc/docker/daemon.json'")
+
+          ssh.exec!("sudo systemctl daemon-reload")
+          ssh.exec!("sudo systemctl restart docker")
+          puts("#{ip}: Configured Docker storage-driver...done".colorize(:cyan))
+        else
+          puts("#{ip}: Configured Docker storage-driver...skipped".colorize(:cyan))
+        end
+
         # Optionally - configure private registry
         if registry
           docker_opts = [ "--registry-mirror=http://#{registry}", "--insecure-registry #{registry}" ]
@@ -254,22 +271,6 @@ class Kubinator
             puts("#{ip}: Configured Docker overrides...skipped".colorize(:cyan))
           end
 
-          # Set docker storage-driver from overlay2 to overlay
-          driver = "overlay"
-          daemon_conf = '/etc/docker/daemon.json'
-          if not ssh.exec!("[ -e #{daemon_conf} ] && echo 'exists'").include?('exists')
-
-            # Configure docker storage-driver
-            docker_conf = "{\\\"storage-driver\\\":\\\"#{driver}\\\"}"
-            ssh.exec!("sudo bash -c 'mkdir -p /etc/docker/'")
-            ssh.exec!("sudo bash -c 'echo \"#{docker_conf}\" > /etc/docker/daemon.json'")
-
-            ssh.exec!("sudo systemctl daemon-reload")
-            ssh.exec!("sudo systemctl restart docker")
-            puts("#{ip}: Configured Docker storage-driver...done".colorize(:cyan))
-          else
-            puts("#{ip}: Configured Docker storage-driver...skipped".colorize(:cyan))
-          end
         end
       end
     }}
