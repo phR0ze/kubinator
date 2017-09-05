@@ -217,10 +217,19 @@ class Kubinator
           puts("#{ip}: Configured node journald...skipped".colorize(:cyan))
         end
 
-        # Configure kubelet
+        # Configure kubelet/k8s api server
+        # https://kubernetes.io/docs/admin/kubeadm
         kubeadm_conf = '/etc/systemd/system/kubelet.service.d/10-kubeadm.conf'
         if not ssh.exec!("cat #{kubeadm_conf}").include?(ip)
-          extra_args = "Environment=\"KUBELET_EXTRA_ARGS=--hostname-override=#{ip} --node-ip=#{ip}\"\\n"
+          api_args = [
+            "--node-ip=#{ip}",
+            "--hostname-override=#{ip}"
+            # Else: /etc/kubernetes/manifests/kube-apiserver.yaml
+            # - --runtime-config=batch/v2alpha1=true
+            # To enable jobs: kubeadmin init --config /etc/kubernetes/kubeadm.conf
+            #"--runtime-config=batch\\/v2alpha1=true"
+          ]
+          extra_args = "Environment=\"KUBELET_EXTRA_ARGS=#{api_args * ' '}\"\\n"
           ssh.exec!("sudo sed -i -e 's/\\(ExecStart=\\)$/#{extra_args}\\1/' #{kubeadm_conf}")
           ssh.exec!("sudo systemctl daemon-reload")
           ssh.exec!("sudo systemctl restart kubelet")
