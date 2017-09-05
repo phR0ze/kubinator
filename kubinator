@@ -195,6 +195,12 @@ class Kubinator
       exit unless Gem::Version.new(helmver) >= Gem::Version.new(@helmver)
     puts("Helm: #{helmver}".colorize(:green))
 
+    # Clear K8s cache
+    #---------------------------------------------------------------------------
+    cache_dir = File.expand_path("~/.kube")
+    FileUtils.rm_rf(cache_dir)
+    FileUtils.mkdir_p(cache_dir)
+
     # (Idempotent) Configure nodes for clustering
     #---------------------------------------------------------------------------
     threads = []
@@ -367,9 +373,8 @@ class Kubinator
     end
 
     # Configure local kubectl
-    kube_conf = File.expand_path("~/.kube/config")
+    kube_conf = File.join(cache_dir, "config")
     FileUtils.rm_rf(kube_conf)
-    FileUtils.mkdir_p(File.dirname(kube_conf))
     Net::SCP.download!(ips.first, @user, '.kube/config', kube_conf, ssh:{paranoid: false, password: @pass})
     sys("kubectl config use-context kubernetes-admin@kubernetes")
     puts("#{'-' * 80}".colorize(:cyan))

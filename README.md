@@ -74,7 +74,8 @@ sudo apt-get install ruby-dev
     export no_proxy=$no_proxy,192.168.56.10,192.168.56.11,192.168.56.12
     ```
 
-3. Deploy K8s on vagrant nodes
+3. Deploy K8s on vagrant nodes  
+    This step ***clears your ~/.kube*** cache
     ```bash
     ./kubinator deploy --cluster
     ```
