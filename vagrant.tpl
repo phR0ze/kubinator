@@ -1,5 +1,5 @@
 #MIT License
-#Copyright (c) 2017 phR0ze
+#Copyright (c) 2017-2018 phR0ze
 #
 #Permission is hereby granted, free of charge, to any person obtaining a copy
 #of this software and associated documentation files (the "Software"), to deal
@@ -20,18 +20,17 @@
 #SOFTWARE.
 
 nodes = [
-  <%= nodes %>
+  <%=nodes%>
 ]
 
 Vagrant.configure("2") do |config|
-  <% if boxver %>config.vm.box_version = "<%= boxver %>"<% end %>
-  config.vm.box = "phR0ze/cyberlinux-k8snode"
   config.vm.synced_folder(".", "/vagrant", disabled:true)
 
   # Configure each node
   #-----------------------------------------------------------------------------
   nodes.each do |node|
     config.vm.define node[:host] do |conf|
+      conf.vm.box = node[:box]
       conf.vm.hostname = node[:host]
 
       # Custom VirtualBox settings
@@ -44,7 +43,8 @@ Vagrant.configure("2") do |config|
         vbox.customize(["modifyvm", :id, "--accelerate3d", node[:v3d]])
 
         # Configure Audio
-        vbox.customize(["modifyvm", :id, "--audio", 'alsa', "--audiocontroller", "ac97"])
+        audio_driver = RUBY_PLATFORM == 'x86_64-linux' ? 'alsa' : 'dsound'
+        vbox.customize(["modifyvm", :id, "--audio", audio_driver, "--audiocontroller", "ac97"])
 
         # Configure Networking
         vbox.customize(["modifyvm", :id, "--nic1", "nat"])
@@ -56,16 +56,17 @@ Vagrant.configure("2") do |config|
       #-------------------------------------------------------------------------
       conf.vm.provision :shell do |script|
 
-        # Add deployed nodes to the no_proxy
-        no_proxy = nil
+        # Setup proxy vars and add deployed nodes to the no_proxy
+        proxy, no_proxy = nil
         if node[:proxy]
+          proxy = node[:proxy]
           no_proxy = node[:no_proxy] || "localhost,127.0.0.1"
           _nodes = nodes.map{|x| x[:ip][0..x[:ip].index('/')-1]}.select{|x| !no_proxy.include?(x)}
-          no_proxy += ",#{nodes * ','}" if _nodes.any?
+          no_proxy += ",#{_nodes * ','}" if _nodes.any?
         end
 
         # Set the bash script to execute for configuration
-        script.args = [node[:ip], node[:proxy].to_s, no_proxy.to_s, node[:ipv6].to_s]
+        script.args = [node[:ip], proxy.to_s, no_proxy.to_s, node[:ipv6].to_s]
         script.inline = <<-SHELL
           echo "Configuring host-only static ip address"
           echo "VM Static IP: ${1}"
@@ -74,16 +75,16 @@ Vagrant.configure("2") do |config|
 
           if [ x"${2}" != x"" ]; then
             echo "Configuring proxy settings"
-            sed -i -e "s|^\\(proxy\\)=.*|\\1=${2}|" /usr/bin/setproxy
-            [ x"${3}" != x"" ] && sed -i -e "s|^\\(no_proxy\\)=.*|\\1=${3}|" /usr/bin/setproxy
-            /usr/bin/setproxy
+            echo "Proxy=${2}"
+            echo "No Proxy=${3}"
+            /opt/<%=distro%>/bin/setproxy enable ${2} ${3} &>/dev/null
           else
             echo "No proxy settings required"
           fi
 
           if [ x"${4}" != x"" ]; then
             echo "Enabling IPv6"
-            [ x"${4}" != x"" ] && sed -i -e "s/ ipv6.disable=1//" /boot/syslinux/syslinux.cfg
+            sed -i -e "s/ ipv6.disable=1//" /boot/syslinux/syslinux.cfg
           else
             echo "Leaving IPv6 disabled"
           fi

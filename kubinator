@@ -110,7 +110,6 @@ class Kubinator
       specs << spec
       puts("Generating node: #{spec.to_s}".colorize(:cyan))
     }
-    exit
 
     # Read in the template file and write out with ips
     FileUtils.cp('vagrant.tpl', 'Vagrantfile')
