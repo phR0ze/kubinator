@@ -76,10 +76,9 @@ chmod +x kubectl
 sudo mv kubectl /usr/local/bin/
 
 # Install Helm
-curl -LO https://storage.googleapis.com/kubernetes-helm/helm-v2.3.1-linux-amd64.tar.gz
-tar xvzf helm-v2.3.1-linux-amd64.tar.gz
-chmod +x linux-amd64/helm
-sudo mv linux-amd64/helm /usr/local/bin/
+curl https://raw.githubusercontent.com/kubernetes/helm/master/scripts/get > get_helm.sh
+chmod 700 get_helm.sh
+./get_helm.sh
 
 # Clone kubinator
 git clone https://github.com/phR0ze/kubinator.git
