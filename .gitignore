@@ -5,3 +5,4 @@ kube.conf
 cyberlinux*.box
 Vagrantfile
 logging-*
+Gemfile.lock

@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 #MIT License
-#Copyright (c) 2017 phR0ze
+#Copyright (c) 2017-2018 phR0ze
 #
 #Permission is hereby granted, free of charge, to any person obtaining a copy
 #of this software and associated documentation files (the "Software"), to deal
@@ -26,17 +26,12 @@ require 'ostruct'               # OpenStruct
 require 'rubygems/package'      # tar
 require 'yaml'                  # YAML
 
-require_relative 'lib/cmds'
-require_relative 'lib/core'
-
 # Gems that need to be installed
 begin
-  require 'colorize'            # color output: colorize
-  require 'net/ssh'             # ssh integration: Net::SSH
-  require 'net/scp'             # scp integration: Net::SCP
+  require 'nub'
 rescue Exception => e
-  mod = e.message.split(' ').last.sub('/', '-')
-  !puts("Error: install missing module with 'sudo gem install #{mod} --no-user-install'") and exit
+  puts("Error: missing package '#{e.message.split(' ').last.sub('/', '-')}'")
+  !puts("Error: install missing packages with 'bundle install --system") and exit
 end
 
 class Kubinator
@@ -563,55 +558,44 @@ end
 #-------------------------------------------------------------------------------
 if __FILE__ == $0
   app = 'kubinator'
-  version = '1.0.0'
   kubinator = Kubinator.new
-  examples = "Examples:\n".colorize(:green)
-  examples += "Deploy nodes: ./#{app} deploy --nodes=10,11,12\n".colorize(:green)
+  version = FileUtils.version('.gemspec', /\s*spec\.version\s*=.*(\d+\.\d+\.\d+).*/)
+  examples = "Deploy nodes: ./#{app} deploy --nodes=10,11,12\n".colorize(:green)
   examples += "Deploy large nodes: ./#{app} deploy --nodes=10,11,12 --cpu=4 --ram=12288\n".colorize(:green)
   examples += "Deploy cluster: ./#{app} deploy --cluster\n".colorize(:green)
-  examples += "Deploy cluster with private registry: ./#{app}.rb deploy --cluster --registry <reg>\n".colorize(:green)
-  examples += "Deploy loggers: ./#{app} deploy --loggers=3\n".colorize(:green)
-  examples += "Delete loggers: ./#{app} delete --loggers=3\n".colorize(:green)
+  examples += "Deploy cluster w/private registry: ./#{app}.rb deploy --cluster --registry <reg>\n".colorize(:green)
 
-  opts = Cmds.new(app, version, examples)
-  opts.add('deploy', 'Deploy Kubernetes', [
-    CmdOpt.new('--nodes=x,y,z', 'List of last octet IPs (e.g. 10,11,2) for nodes', type:Array),
-    CmdOpt.new('--box=BOX', 'Box version to use for deployment', type:String),
-    CmdOpt.new('--cpu=CPU', 'Number of cpus to assign a new VM', type:Integer),
-    CmdOpt.new('--ram=RAM', 'Amount of ram to assign a new VM', type:Integer),
-    CmdOpt.new('--cluster', 'Deploy a Kubernetes cluster on the nodes'),
-    CmdOpt.new('--registry=REGISTRY', 'Authorize the given private registry', type:String),
-    CmdOpt.new('--loggers=NUM', 'Deploy a number of logger instances', type:Integer)
+  cmdr = Commander.new(app:app, version:version, examples:examples)
+  cmdr.add('deploy', 'Deploy Kubernetes Nodes', nodes:[
+    Option.new(nil, 'List of last octet IPs (e.g. 10,11,12', allowed:{
+      nodes: 'Deploy nodes via vagrant box',
+      cluster: ''}, required:true),
+    Option.new('--ips=x,y,z', 'List of last octet IPs (e.g. 10,11,2) for nodes', type:Array),
+    Option.new('--box=BOX', 'Box version to use for deployment', type:String),
+    Option.new('--cpu=CPU', 'Number of cpus to assign a new VM', type:Integer),
+    Option.new('--ram=RAM', 'Amount of ram to assign a new VM', type:Integer),
+    Option.new('--cluster', 'Deploy a Kubernetes cluster on the nodes'),
+    Option.new('--registry=REGISTRY', 'Authorize the given private registry', type:String),
   ])
-  opts.add('delete', 'Delete a number of logger instances', [
-    CmdOpt.new('--loggers=NUM', 'Delete a number of logger instances', type:Integer)
-  ])
-  opts.add('cluster', 'Kubernetes cluster control', [
-    CmdOpt.new('--init', 'Initialize the main k8s node'),
-    CmdOpt.new('--join', 'Join all the slave nodes to the cluster'),
-    CmdOpt.new('--dashboard', 'Install dashboard'),
-    CmdOpt.new('--helm', 'Install helm')
-  ])
-  opts.parse!
+#  cmdr.add('cluster', 'Kubernetes cluster control', nodes:[
+#    Option.new('--init', 'Initialize the main k8s node'),
+#    Option.new('--join', 'Join all the slave nodes to the cluster'),
+#    Option.new('--dashboard', 'Install dashboard'),
+#    Option.new('--helm', 'Install helm')
+#  ])
+  cmdr.parse!
+  begin
+    if cmdr[:deploy]
+      kubinator.deploy(opts[:nodes], box:opts[:box], cpu:opts[:cpu], ram:opts[:ram])
+    end
 
-  # Execute
-  puts(opts.banner)
-
-  # Deploy kubinator nodes
-  if opts[:nodes]
-    kubinator.deploy_nodes(opts[:nodes], box:opts[:box], cpu:opts[:cpu], ram:opts[:ram])
-  end
-
-  # Cluster kubinator nodes
-  if opts[:cluster]
-    ips = kubinator.getnodeips()
-    kubinator.deploy_cluster(ips, init: opts[:init], join: opts[:join], dashboard: opts[:dashboard], helm: opts[:helm])
-  end
-
-  # Deploy/Delete loggers
-  if opts[:loggers]
-    kubinator.loggers(deploy: opts[:loggers]) if opts[:deploy]
-    kubinator.loggers(delete: opts[:loggers]) if opts[:delete]
+    # Cluster kubinator nodes
+#    if opts[:cluster]
+#      ips = kubinator.getnodeips()
+#      kubinator.deploy(ips, init: opts[:init], join: opts[:join], dashboard: opts[:dashboard], helm: opts[:helm])
+#    end
+  rescue Interrupt
+    puts("\n:: Exiting...".colorize(:light_yellow))
   end
 end
 
