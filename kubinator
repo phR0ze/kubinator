@@ -21,7 +21,6 @@
 #SOFTWARE.
 
 require 'fileutils'             # advanced file utils: FileUtils
-require 'mkmf'                  # system utils: find_executable
 require 'open3'                 # Better system commands
 require 'ostruct'               # OpenStruct
 require 'rubygems/package'      # tar

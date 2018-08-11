@@ -19,15 +19,16 @@ strictly the responsiblity of the user and not the developer/creator of ***kubin
  
 ## Deploy Kubinator <a name="deploy-kubinator"/></a>
 There is no Linux distribution requirements here other than something that supports
-***VirtualBox***, ***Vagrant*** and ***Ruby***
+***VirtualBox***, ***Vagrant*** and ***Ruby***, however [cyberlinux](http://github.com/phR0ze/cyberlinux)
+is the fastest way to get up and running as most of the dependencies are baked in.
+
+***kubectl*** and ***helm*** are required to be installed on the host environment to manage the
+cluster remotely.
 
 ### Deploy on cyberlinux <a name="deploy-on-cyberlinux"/></a>
-[cyberlinux](http://github.com/phR0ze/cyberlinux) is the perferred distribution to deploy on as many
-dependencies are baked in.
-
 ```bash
 # Install deps, run:
-sudo pacman -S kubctl helm
+sudo pacman -S kubectl helm
 
 # Clone kubinator
 git clone https://github.com/phR0ze/kubinator.git

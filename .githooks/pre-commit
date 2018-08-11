@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 #MIT License
-#Copyright (c) 2017 phR0ze
+#Copyright (c) 2017-2018 phR0ze
 #
 #Permission is hereby granted, free of charge, to any person obtaining a copy
 #of this software and associated documentation files (the "Software"), to deal
@@ -20,6 +20,25 @@
 #OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #SOFTWARE.
 
-require_relative 'test_kubinator'
+begin
+  require 'nub'
+rescue Exception => e
+  mod = e.message.split(' ').last.sub('/', '-')
+  !puts("Error: install missing package with 'sudo pacman -S ruby-#{mod}'") and exit
+end
+
+# Update copyright in ASCII files
+`git diff --cached --name-only --diff-filter=d`.split(' ').each{|path|
+  if `file #{path}`.include?("ASCII text")
+    `git add #{path}` if FileUtils.update_copyright(path, "Copyright (c)")
+  end
+}
+
+# Increment revision of version
+version_file = '.gemspec'
+version_regx = /\s*spec\.version\s*=.*(\d+\.\d+\.\d+).*/
+ver = FileUtils.inc_version(version_file, version_regx)
+`git add #{version_file}`
+puts("Version: #{ver}")
 
 # vim: ft=ruby:ts=2:sw=2:sts=2
