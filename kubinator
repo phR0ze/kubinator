@@ -41,69 +41,60 @@ class Kubinator
   def initialize()
 
     # Minimum versions
-    @helmver = '2.3.1'
+    @helmver = '2.9.1'
     @vagrantver = '1.8.1'
     @virtualboxver = '5.0.32'
 
+    # Semi-static variables
     @user = 'vagrant'
     @pass = 'vagrant'
     @host = 'k8snode'
     @netname = 'vboxnet0'
     @netip = '192.168.56.1'
     @netmask = '255.255.255.0'
-
-    # Set proxy vars
-    @proxyenv = {
-      'ftp_proxy' => ENV['ftp_proxy'],
-      'http_proxy' => ENV['http_proxy'],
-      'https_proxy' => ENV['https_proxy'],
-      'no_proxy' => ENV['no_proxy']
-    }
-    @proxy = ENV['http_proxy']
-    @proxy_export = @proxy ? (@proxyenv.map{|k,v| "export #{k}=#{v}"} * ';') + ";" : nil
   end
 
   # Deploy vagrant node/s
-  # @param box [String] version for vms
-  # @param ips [Array] of last octet ips for vms
+  # @param nodes [Array] of last octet ips for vms
   # @param cpu [Int] count to use for vms
   # @param ram [Int] amount of ram in mb for vms
-  def deploy(box:nil, ips:nil, cpu:nil, ram:nil)
+  # @param box [String] version for vms
+  def deploy(nodes:nil, cpu:nil, ram:nil, box:nil)
     puts(":: Deploying vagrant vms...".colorize(:light_yellow))
-    exit
 
     # Validate vagrant environment
     #---------------------------------------------------------------------------
-    puts("Validating the environment for the correct vagrant tooling".colorize(:cyan))
+    puts(":: Validating environment tooling".colorize(:cyan))
 
     # Check that vagrant is installed and the correct version
     !puts("Ensure 'vagrant' is installed and on the $PATH".colorize(:red)) and
-      exit unless find_executable('vagrant')
+      exit unless FileUtils.exec?('vagrant')
     vagrantver = `vagrant --version`[/\d+\.\d+\.\d+/]
     !puts("Vagrant needs to be version #{@vagrantver} or higher".colorize(:red)) and
       exit unless Gem::Version.new(vagrantver) >= Gem::Version.new(@vagrantver)
-    puts("Vagrant: #{vagrantver}".colorize(:green))
+    puts("Found Vagrant: #{vagrantver}".colorize(:green))
 
     # Check that vagrant/virtualbox are on the path and clean previously deployed VMs
     !puts("Ensure 'virtualbox' is installed and on the $PATH".colorize(:red)) and
-      exit unless find_executable('vboxmanage')
+      exit unless FileUtils.exec?('vboxmanage')
     virtualboxver = `vboxmanage --version`[/\d+\.\d+\.\d+/]
     !puts("Virtualbox needs to be version #{@virtualboxver} or higher".colorize(:red)) and
       exit unless Gem::Version.new(virtualboxver) >= Gem::Version.new(@virtualboxver)
-    puts("Virtualbox: #{virtualboxver}".colorize(:green))
+    puts("Found Virtualbox: #{virtualboxver}".colorize(:green))
 
     # Ensure host-only network exists
     #---------------------------------------------------------------------------
+    puts(":: Ensure host-only networking exists".colorize(:cyan))
     config_network = "vboxmanage hostonlyif ipconfig #{@netname} -ip #{@netip} -netmask #{@netmask}"
-    if not sys(config_network, die:false)
-      sys("vboxmanage hostonlyif create")
-      sys(config_network)
+    if not Sys.exec(config_network, die:false)
+      Sys.exec("vboxmanage hostonlyif create")
+      Sys.exec(config_network)
     end
 
     # Generate vagrant node parameters
     #---------------------------------------------------------------------------
     specs = []
-    nodes.each do |node|
+    (nodes || (10..12)).each{|node|
       spec = {
         host: "#{@host}#{node}",
         ip: "#{@netip[0..-2]}#{node}/24",
@@ -112,13 +103,14 @@ class Kubinator
         vram: 8,
         net: @netname,
         v3d: 'off',
-        proxy: @proxyenv['http_proxy'],
-        no_proxy: @proxyenv['no_proxy'],
+        proxy: Net.proxy.http,
+        no_proxy: Net.proxy.no,
         ipv6: nil
       }
       specs << spec
       puts("Generating node: #{spec.to_s}".colorize(:cyan))
-    end
+    }
+    exit
 
     # Read in the template file and write out with ips
     FileUtils.cp('vagrant.tpl', 'Vagrantfile')
@@ -457,11 +449,11 @@ if __FILE__ == $0
 
   cmdr = Commander.new(app:app, version:version, examples:examples)
   cmdr.add('deploy', 'Deploy Vagrant nodes with desired configuration', nodes:[
-    Option.new('--box=BOX', 'Box version to use for deployment', type:String),
-    Option.new('--ips=IPS', 'List of last octet IPs (e.g. 10,11,2)', type:Array),
+    Option.new('--nodes=NODES', 'List of last octet IPs (e.g. 10,11,2)', type:Array),
     Option.new('--cpu=CPU', 'Number of cpus to assign a new VM', type:Integer),
     Option.new('--ram=RAM', 'Amount of ram to assign a new VM', type:Integer),
-  ], examples: "Specific version: ./#{app} deploy --box=0.1.133\n" + 
+    Option.new('--box=BOX', 'Box version to use for deployment', type:String),
+  ], examples: "Specific version: ./#{app} deploy --box=0.1.133\n" +
     "Custom nodes: ./#{app} deploy --ips=10,11,12 --cpu=2 --ram=4096")
 
 #  cmdr.add('cluster', 'Kubernetes cluster control', nodes:[
@@ -475,7 +467,7 @@ if __FILE__ == $0
   cmdr.parse!
   begin
     if cmdr[:deploy]
-      kubinator.deploy(box:cmdr[:deploy][:box], ips:cmdr[:deploy][:ips], cpu:cmdr[:deploy][:cpu], ram:cmdr[:deploy][:ram])
+      kubinator.deploy(nodes:cmdr[:deploy][:nodes], cpu:cmdr[:deploy][:cpu], ram:cmdr[:deploy][:ram], box:cmdr[:deploy][:box])
     end
 
     # Cluster kubinator nodes
