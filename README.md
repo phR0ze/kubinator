@@ -122,15 +122,18 @@ Deploying a development Kubernetes cluster with kubinator is a few simple steps:
   # Example: kubectl get po --all-namespaces -o wide
   ```
 
+### Node Networking <a name="node-networking"/></a>
+Each node is configured with two network interface cards:  
+1. One configured as a NAT with the host for access to the external world
+2. One configured on a host-only network for node to node communication
+
 ### Vagrant Node Access
 You can access the nodes using *vagrant* for your username and password  
-Example shell into a node:
 ```bash
+# Example shell into a node:
 ssh vagrant@192.168.56.10
-```
 
-Example scp out a file:
-```bash
+# Example scp out a file:
 scp vagrant@192.168.56.10:/etc/kubernetes/kubelet.conf .
 ```
 

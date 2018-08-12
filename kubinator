@@ -35,6 +35,7 @@ rescue Exception => e
 end
 
 class Kubinator
+  Node = Struct.new(:name, :ip)
 
   # Initialize
   # ==== Attributes
@@ -411,6 +412,13 @@ class Kubinator
     end
   end
 
+  # Destroy the vagrant vms
+  def destroy
+    getnodes.each{|node|
+      Sys.exec("vagrant destroy #{node.name} -f")
+    }
+  end
+
   # Get pod details
   # ==== Attributes
   # * +pod+ - pod by name to pull details for
@@ -426,22 +434,21 @@ class Kubinator
     return details
   end
 
-  # Parse the node ips out of the Vagrantfile
-  # ==== Attributes
-  # * +returns+ - list of node ips
-  def getnodeips()
-    ips = []
+  # Parse the node names out of the Vagrantfile
+  # @returns [Array(Node)] list of nodes
+  def getnodes
+    nodes = []
 
     pattern = @netip.split('.')[0..-2] * '.'
-    File.open('Vagrantfile', 'r') do |f|
+    File.open('Vagrantfile', 'r'){|f|
       f.readlines.each{|x|
         if x =~ /#{pattern}.*/
-          ips << x[/#{pattern}\.\d+/]
+          nodes << Node.new(x[/k8snode[\d]+/], x[/#{pattern}\.\d+/])
         end
       }
-    end
+    }
 
-    return ips
+    return nodes
   end
 end
 
@@ -456,12 +463,14 @@ if __FILE__ == $0
   examples += "Deploy custom: ./#{app} deploy --ips=10,11,12 --cpu=2 --ram=4096\n".colorize(:green)
 
   cmdr = Commander.new(app:app, version:version, examples:examples)
-  cmdr.add('deploy', 'Deploy Vagrant nodes with desired configuration', nodes:[
+  cmdr.add('deploy', 'Deploy Vagrant nodes', nodes:[
     Option.new('--nodes=NODES', 'List of last octet IPs (e.g. 10,11,2)', type:Array),
     Option.new('--cpu=CPU', 'Number of cpus to assign a new VM', type:Integer),
     Option.new('--ram=RAM', 'Amount of ram to assign a new VM', type:Integer),
   ], examples: "Standard: ./#{app} deploy\n" +
     "Custom nodes: ./#{app} deploy --ips=10,11,12 --cpu=2 --ram=4096")
+  cmdr.add('destroy', 'Destroy Vagrant nodes', nodes:[
+  ], examples: "Destroy nodes: ./#{app} destroy\n")
 
 #  cmdr.add('cluster', 'Kubernetes cluster control', nodes:[
 #    Option.new('--init', 'Initialize the main k8s node'),
@@ -475,6 +484,9 @@ if __FILE__ == $0
   begin
     if cmdr[:deploy]
       kubinator.deploy(nodes:cmdr[:deploy][:nodes], cpu:cmdr[:deploy][:cpu], ram:cmdr[:deploy][:ram])
+    end
+    if cmdr[:destroy]
+      kubinator.destroy
     end
 
     # Cluster kubinator nodes
