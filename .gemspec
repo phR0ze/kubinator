@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name        = 'kubinator'
-  spec.version     = '0.1.6'
+  spec.version     = '0.1.7'
   spec.summary     = "Deployment automation for Kubernetes"
   spec.authors     = ["Patrick Crummett"]
   spec.homepage    = 'https://github.com/phR0ze/kubinator'
@@ -9,6 +9,8 @@ Gem::Specification.new do |spec|
   # Runtime dependencies
   spec.add_dependency('nub', '~> 0.0.103')
   spec.add_dependency('filesize', '~> 0.1.1')
+  spec.add_dependency('net-ssh', '~> 5.0.2')
+  spec.add_dependency('net-scp', '~> 1.2.1')
 
   # Development dependencies
   spec.add_development_dependency('minitest', '~> 5.11.3')
