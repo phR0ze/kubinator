@@ -89,6 +89,9 @@ bundle install --system
 ```
 
 ## Deploy Kubernetes <a name="deploy-kubernetes"/></a>
+By default ***Kubinator*** will deploy 3 ***cyberlinux-k8snode*** vms with 2 cpus and 2GB RAM ea. on
+which to deploy Kubernetes.
+
 Deploying a development Kubernetes cluster with kubinator is a few simple steps:
 
 1. Deploy vagrant nodes

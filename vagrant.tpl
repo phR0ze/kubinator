@@ -30,7 +30,7 @@ Vagrant.configure("2") do |config|
   #-----------------------------------------------------------------------------
   nodes.each do |node|
     config.vm.define node[:host] do |conf|
-      conf.vm.box = node[:box]
+      conf.vm.box = "<%=box%>"
       conf.vm.hostname = node[:host]
 
       # Custom VirtualBox settings
@@ -39,12 +39,13 @@ Vagrant.configure("2") do |config|
         vbox.name = node[:host]
         vbox.cpus = node[:cpus]
         vbox.memory = node[:ram]
+
+        # Configure Video
         vbox.customize(["modifyvm", :id, "--vram", node[:vram]])
         vbox.customize(["modifyvm", :id, "--accelerate3d", node[:v3d]])
 
         # Configure Audio
-        audio_driver = RUBY_PLATFORM == 'x86_64-linux' ? 'alsa' : 'dsound'
-        vbox.customize(["modifyvm", :id, "--audio", audio_driver, "--audiocontroller", "ac97"])
+        vbox.customize(["modifyvm", :id, "--audio", "alsa", "--audiocontroller", "ac97"])
 
         # Configure Networking
         vbox.customize(["modifyvm", :id, "--nic1", "nat"])
@@ -77,7 +78,7 @@ Vagrant.configure("2") do |config|
             echo "Configuring proxy settings"
             echo "Proxy=${2}"
             echo "No Proxy=${3}"
-            /opt/<%=distro%>/bin/setproxy enable ${2} ${3} &>/dev/null
+            /opt/cyberlinux/bin/setproxy enable ${2} ${3} &>/dev/null
           else
             echo "No proxy settings required"
           fi
