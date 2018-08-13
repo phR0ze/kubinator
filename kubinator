@@ -137,12 +137,25 @@ class Kubinator
   end
 
   # Create a snapshot of the vms in the cluster
-  # @param cmd [String] save or restor
-  def snap(cmd)
+  # @param cmd [String] push or pop
+  # @param snap [String] to operate on
+  def snap(cmd, snap)
     nodes = getnodes.map{|x| x.name}
+    curr_snap = `vagrant snapshot list`.split.first
+    next_snap = curr_snap ? curr_snap[0..-2] + (curr_snap[-1].to_i + 1).to_s : "snap1"
 
     if cmd == "save"
       puts(":: Creating snapshot for VMs [#{nodes * ','}]...".colorize(:light_yellow))
+      snap ||= next_snap
+      Sys.exec("vagrant snapshot save #{snap}")
+    elsif cmd == "restore"
+      puts(":: Restoring previous snapshot for VMs [#{nodes * ','}]...".colorize(:light_yellow))
+      snap ||= curr_snap
+      Sys.exec("vagrant snapshot restore #{snap}")
+    elsif cmd == "delete"
+      puts(":: Deleting previous snapshot for VMs [#{nodes * ','}]...".colorize(:light_yellow))
+      snap ||= curr_snap
+      Sys.exec("vagrant snapshot delete #{snap}")
     end
   end
 
@@ -488,9 +501,12 @@ if __FILE__ == $0
     Option.new(nil, 'Snapshot command to execute', allowed:{
       save: "Create a new snapshot",
       restore: "Restore previous snapshot",
+      delete: "Delete previous snapshot",
     }),
-  ], examples: "Create snapshot: ./#{app} snap save\n" + 
-    "Restore snapshot: ./#{app} snap restore\n")
+    Option.new(nil, 'Snapshot name to use if given')
+  ], examples: "Create snapshot: ./#{app} snap push\n" + 
+    "Restore previous snapshot: ./#{app} snap pop\n" +
+    "Delete previous snapshot: ./#{app} snap pop\n")
 
   # Destroy vms
   #-----------------------------------------------------------------------------
@@ -513,7 +529,7 @@ if __FILE__ == $0
       kubinator.deploy(nodes:cmdr[:deploy][:nodes], cpu:cmdr[:deploy][:cpu], ram:cmdr[:deploy][:ram])
     end
     if cmdr[:snap]
-      kubinator.snap(cmdr[:snap][:snap0])
+      kubinator.snap(cmdr[:snap][:snap0], cmdr[:snap][:snap1])
     end
     if cmdr[:destroy]
       kubinator.destroy
