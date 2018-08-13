@@ -141,7 +141,9 @@ class Kubinator
   # @param snap [String] to operate on
   def snap(cmd, snap)
     nodes = getnodes.map{|x| x.name}
-    curr_snap = `vagrant snapshot list`.split.first
+    out = `vagrant snapshot list`
+    snaps = out.include?("No snapshots") ? [] : out.split.uniq.sort
+    curr_snap = snaps.last
     next_snap = curr_snap ? curr_snap[0..-2] + (curr_snap[-1].to_i + 1).to_s : "snap1"
 
     if cmd == "save"
@@ -156,6 +158,9 @@ class Kubinator
       puts(":: Deleting previous snapshot for VMs [#{nodes * ','}]...".colorize(:light_yellow))
       snap ||= curr_snap
       Sys.exec("vagrant snapshot delete #{snap}")
+    elsif cmd == "list"
+      puts(":: Listing snapshots for VMs [#{nodes * ','}]...".colorize(:light_yellow))
+      puts(snaps)
     end
   end
 
@@ -502,11 +507,13 @@ if __FILE__ == $0
       save: "Create a new snapshot",
       restore: "Restore previous snapshot",
       delete: "Delete previous snapshot",
+      list: "Delete previous snapshot",
     }),
     Option.new(nil, 'Snapshot name to use if given')
-  ], examples: "Create snapshot: ./#{app} snap push\n" + 
-    "Restore previous snapshot: ./#{app} snap pop\n" +
-    "Delete previous snapshot: ./#{app} snap pop\n")
+  ], examples: "Create snapshot: ./#{app} snap save\n" + 
+    "Restore previous snapshot: ./#{app} snap restore\n" +
+    "Delete previous snapshot: ./#{app} snap delete\n" +
+    "List previous snapshots: ./#{app} snap list\n")
 
   # Destroy vms
   #-----------------------------------------------------------------------------
