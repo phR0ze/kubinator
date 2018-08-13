@@ -1,10 +1,14 @@
 # Kubinator
 ***Kubinator*** provides deployment automation for Kubernetes  
+
+<img align="left" width="48" height="48" src="https://github.com/phR0ze/cyberlinux/blob/master/art/logo_256x256.png">
+<b><i>Kubinator</i></b> is a <a href="https://github.com/phR0ze/cyberlinux">cyberlinux</a> backed project leveraging the pre-packed 
+<a href="https://app.vagrantup.com/phR0ze/boxes/cyberlinux-k8snode">cyberlinux Vagrant box</a>
+
+providing Kubinator with the ability to <b><i>deploy a new K8s cluster in under 10 minutes</i></b>
+
 ***Kubinator*** can quickly deploy a K8s cluster with customizable VMs, manage vm snapshots and
-automate cluster customizations all from a single simple command line. Kubinator accomplishes this
-by leveraging Vagrant's excellent cross platform VM automation with VirtualBox as the provider
-backend. Kubinator can ***deploy a new K8s cluster in under 10min*** using an opensource pre-baked
-Vagrant box https://app.vagrantup.com/phR0ze/boxes/cyberlinux-k8snode
+automate cluster customizations all from a single simple command line.
 
 [![Build Status](https://travis-ci.org/phR0ze/kubinator.svg)](https://travis-ci.org/phR0ze/kubinator)
 
@@ -26,9 +30,9 @@ strictly the responsiblity of the user and not the developer/creator of ***kubin
 ***Kubinator*** uses Ruby to automate the management/orchestration of the Virtual Machines backing
 the Kubernetes cluster. ***Kubinator*** orchestrates [Vagrant](https://www.vagrantup.com/intro/index.html)
 to then in turn pull the strings of [VirtualBox](https://www.virtualbox.org/). Kubinator is able to
-get a new Kubernetes cluster up and running in under 10min by using a pre-built [Vagrant
+get a new Kubernetes cluster up and running in under 10 minutes by using a pre-built [Vagrant
 box](https://app.vagrantup.com/phR0ze/boxes/cyberlinux-k8snode) as the base of Virtual Machines
-backing your K8s cluster.
+backing the K8s cluster.
 <a href="doc/images/vagrantup-k8snode.jpg"><img src="doc/images/vagrantup-k8snode.jpg"></a>
 
 ## Deploy Kubinator <a name="deploy-kubinator"/></a>
