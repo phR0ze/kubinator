@@ -297,7 +297,7 @@ class Kubinator
           cmd += "--node-name=#{ips.first} "
 
           # CRI is flagged as an error if missing even though it isn't required
-          # https://github.com/kubernetes/kubeadm/issues/613
+          # https://github.com/kubernetes/kubeadm/issues/992
           cmd += "--ignore-preflight-errors=cri"
 
           # Flannel requires this to work
