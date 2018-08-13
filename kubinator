@@ -44,7 +44,7 @@ class Kubinator
   def initialize()
 
     # Minimum versions
-    @k8sver = '1.10.5'
+    @k8sver = '1.11.2'
     @helmver = '2.9.1'
     @vagrantver = '1.8.1'
     @virtualboxver = '5.0.32'
@@ -288,13 +288,22 @@ class Kubinator
         if not ssh.exec!("docker ps").include?("apiserver")
           puts(":: Initialize master node '#{ips.first}'".colorize(:cyan))
 
-          # Initialize master - pod-network injects the --cluster-cidr into kube-proxy
+          # Initialize master
           cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
           cmd += "--apiserver-advertise-address=#{ips.first} "
+
+          # Master initialization fails without this
           # https://github.com/kubernetes/kops/issues/4390
-          cmd += "--node-name=#{ips.first}"
+          cmd += "--node-name=#{ips.first} "
+
+          # CRI is flagged as an error if missing even though it isn't required
+          # https://github.com/kubernetes/kubeadm/issues/613
+          cmd += "--ignore-preflight-errors=cri"
+
+          # Flannel requires this to work
           # https://github.com/coreos/flannel/blob/master/Documentation/kubernetes.md
           cmd += " --pod-network-cidr=10.244.0.0/16" if flannel
+
           ssh.exec!(cmd){|c,s,o|
             puts(o)
             # e.g.  kubeadm join 192.168.56.10:6443 --token u6wor2.6kinrlvcbtxcoqo4 --discovery-token-ca-cert-hash
