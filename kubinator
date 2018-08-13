@@ -165,11 +165,15 @@ class Kubinator
   end
 
   # Create Kubernetes cluster from given nodes
+  # https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm
   # @param cmd [String] to execute against the cluster
   # @param registry [String] to authorize
   def cluster(cmd, registry:nil)
     puts(":: Deploying Kubernetes Cluster...".colorize(:light_yellow))
+    elapse = Time.now
     ips = getnodes.map{|x| x.ip}
+    all = cmd.include?('all')
+    init = cmd.include?('init')
 
     token = 'c74b2e.897db207c8e26de2'
 
@@ -210,6 +214,7 @@ class Kubinator
     threads = []
     ips.each{|ip| threads << Thread.new{
       Net::SSH.start(ip, @user, password:@pass, verify_host_key: :never) do |ssh|
+        puts(":: Configure nodes for clustering".colorize(:cyan))
 
         # Configure journald for persistent storage
         journald_conf = '/etc/systemd/journald.conf'
@@ -218,7 +223,7 @@ class Kubinator
           ssh.exec!("sudo systemctl restart systemd-journald")
           puts("#{ip}: Configured node journald...done".colorize(:cyan))
         else
-          puts("#{ip}: Configured node journald...skipped".colorize(:cyan))
+          puts("#{ip}: Configure node journald...skipped".colorize(:cyan))
         end
 
         # Configure kubelet/k8s api server
@@ -235,7 +240,7 @@ class Kubinator
           ssh.exec!("sudo systemctl restart kubelet")
           puts("#{ip}: Configured Kubelet private network ip...done".colorize(:cyan))
         else
-          puts("#{ip}: Configured Kubelet private network ip...skipped".colorize(:cyan))
+          puts("#{ip}: Configure Kubelet private network ip...skipped".colorize(:cyan))
         end
 
         # Configure kernel for Elasticsearch
@@ -244,7 +249,7 @@ class Kubinator
           ssh.exec!("sudo bash -c 'echo \"vm.max_map_count = 262144\" >> #{sysctl_conf}'")
           ssh.exec!("sudo sysctl -w vm.max_map_count=262144")
         else
-          puts("#{ip}: Configured kernel params...skipped".colorize(:cyan))
+          puts("#{ip}: Configure kernel params...skipped".colorize(:cyan))
         end
 
         # Optionally - configure private registry
@@ -266,7 +271,7 @@ class Kubinator
             ssh.exec!("sudo systemctl restart docker")
             puts("#{ip}: Configured Docker overrides...done".colorize(:cyan))
           else
-            puts("#{ip}: Configured Docker overrides...skipped".colorize(:cyan))
+            puts("#{ip}: Configure Docker overrides...skipped".colorize(:cyan))
           end
 
         end
@@ -279,13 +284,15 @@ class Kubinator
     #---------------------------------------------------------------------------
     if all or init
       Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never) do |ssh|
-        if not ssh.exec!("docker ps").include?("google")
+        if not ssh.exec!("docker ps").include?("apiserver")
+          puts(":: Initialize master node '#{ips.first}'".colorize(:cyan))
 
           # Initialize master - pod-network injects the --cluster-cidr into kube-proxy
-          puts("#{ips.first}: Initialize Master node...".colorize(:cyan))
-          cmd = "sudo kubeadm init --token=#{token} --kubernetes-version=v#{k8sver} --apiserver-advertise-address=#{ips.first}"
+          cmd = "sudo kubeadm init --token=#{token} --kubernetes-version=v#{@k8sver} --apiserver-advertise-address=#{ips.first}"
           ssh.exec!(cmd){|c,s,o|puts(o)}
           (1..10).each{|i| puts("Waiting for k8s networking to quiesce..#{i}"); sleep(1)}
+
+          # Setup kubectl on master node for both vagrant and root users
           ssh.exec!("mkdir -p ~/.kube")
           ssh.exec!("sudo mkdir -p /root/.kube")
           ssh.exec!("sudo cp /etc/kubernetes/admin.conf /root/.kube/config")
@@ -294,7 +301,7 @@ class Kubinator
           ssh.exec!("kubectl config use-context kubernetes-admin@kubernetes")
           ssh.exec!("sudo kubectl config use-context kubernetes-admin@kubernetes")
 
-          # Disable RBAC for now (will wait until needed)
+          # Disable RBAC
           # Bottom of https://kubernetes.io/docs/admin/authorization/rbac
           ssh.exec!("kubectl create clusterrolebinding permissive-binding --clusterrole=cluster-admin --user=admin --user=kubelet --group=system:serviceaccounts"){|c,s,o|puts(o)}
 
@@ -308,19 +315,18 @@ class Kubinator
           ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
 
           # Taint master node to allow pods to be scheduled on it
-          # Check current taints in Tains section: kubectl describe node
-          # Note: this needs to be done before deploying flannel
+          # Check current taints in Taints section: kubectl describe node
           puts("Tainting the master node to allow pods to be scheduled on it".colorize(:cyan))
           ssh.exec!("kubectl taint nodes --all node-role.kubernetes.io/master-"){|c,s,o|puts(o)}
 
           # Install Pod networking
           # Note: kube-dns will be pending until the pod networking is installed
           puts("Installing weave networking".colorize(:cyan))
-          #ssh.exec!("#{@proxy_export}kubectl apply -f https://git.io/weave-kube-1.6"){|c,s,o|puts(o)}
-          ssh.exec!("#{@proxy_export}kubectl apply -f https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"){|c,s,o|puts(o)}
+          ssh.exec!("kubectl apply -f https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}"){|c,s,o|puts(o)}
         end
       end
     end
+    exit
 
     # (Idempotent) Configure slaves to join cluster
     #---------------------------------------------------------------------------
@@ -364,6 +370,8 @@ class Kubinator
         end
       end
     end
+
+    puts("Master Init took: #{Time.now - elapse} sec".colorize(:light_yellow))
 
     # Configure local kubectl
     kube_conf = File.join(cache_dir, "config")
@@ -484,7 +492,8 @@ if __FILE__ == $0
   # Manage K8s cluster
   #-----------------------------------------------------------------------------
   cmdr.add('cluster', 'Kubernetes cluster control', nodes:[
-    Option.new(nil, 'Cluster command', required:true, allowed:{
+    Option.new(nil, 'Cluster command', required:true, type:Array, allowed:{
+      all: 'Init cluster with all customizations',
       init: 'Initialize the Kubernetes cluster'
     }),
   ], examples: "Initialize cluster: ./#{app} cluster init\n")

@@ -19,6 +19,7 @@ strictly the responsiblity of the user and not the developer/creator of ***kubin
 
 ### Table of Contents
 * [Kubinator Overview](#kubinator-overview)
+  * [Kubeadm](#kubeadm)
 * [Deploy Kubinator](#deploy-kubinator)
   * [Deploy on cyberlinux](#deploy-on-cyberlinux)
   * [Deploy on Arch Linux](#deploy-on-arch-linux)
@@ -34,6 +35,17 @@ get a new Kubernetes cluster up and running in under 10 minutes by using a pre-b
 box](https://app.vagrantup.com/phR0ze/boxes/cyberlinux-k8snode) as the base of Virtual Machines
 backing the K8s cluster.
 <a href="doc/images/vagrantup-k8snode.jpg"><img src="doc/images/vagrantup-k8snode.jpg"></a>
+
+### Kubeadm <a name="kubeadm"/></a>
+https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm/
+
+***Kubinator*** leverages ***kubeadm*** which is a Kubernetes project designed to be a simple way
+for new users to start trying Kubernetes out, possibly for the first time, a way for existing users
+to test their application on and stitch together a cluster easily, and also to be a building block
+in other ecosystem and/or installer tool with a larger scope.
+
+***kubeadm*** is currently in Beta but expecred to graduate to ***General Availability (GA) in
+2018***
 
 ## Deploy Kubinator <a name="deploy-kubinator"/></a>
 There is no ***host*** Linux distribution requirements here other than something that supports
