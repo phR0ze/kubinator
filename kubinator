@@ -176,15 +176,12 @@ class Kubinator
     # Validate host environment
     #---------------------------------------------------------------------------
     puts(":: Validating the K8s host environment".colorize(:cyan))
-
-    # Validate that kubectl is installed on the path and a supported version
     Log.die("Ensure 'kubectl' is installed and on the $PATH") unless FileUtils.exec?('kubectl')
     host_k8sver = `kubectl version`[/GitVersion.*v([\d]+\.[\d]+\.[\d]+)/, 1]
     !puts("Kubectl needs to be version #{@k8sver} or higher".colorize(:red)) and
       exit unless Gem::Version.new(host_k8sver) >= Gem::Version.new(@k8sver)
     puts("Host K8s Version: #{host_k8sver}".colorize(:green))
 
-    # Validate that helm is installed on the path and a supported version
     Log.die("Ensure 'helm' is installed and on the path") unless FileUtils.exec?('helm')
     host_helmver = `helm version --client`[/\d+\.\d+\.\d+/]
     !puts("Helm needs to be version #{@helmver} or higher".colorize(:red)) and
@@ -200,35 +197,19 @@ class Kubinator
       node_k8sver = ssh.exec!("kubectl version")[/GitVersion.*v([\d]+\.[\d]+\.[\d]+)/, 1]
       !puts("Node K8s needs to be version #{@k8sver} or higher".colorize(:red)) and
         exit unless Gem::Version.new(node_k8sver) >= Gem::Version.new(@k8sver)
-      puts("Node K8s Version: #{node_k8s_ver}".colorize(:cyan))
+      puts("Node K8s Version: #{node_k8sver}".colorize(:green))
 
       node_helmver = ssh.exec!("helm version --client")[/SemVer.*v([\d]+\.[\d]+\.[\d]+)/, 1]
       !puts("Node Helm needs to be version #{@helmver} or higher".colorize(:red)) and
         exit unless Gem::Version.new(node_helmver) >= Gem::Version.new(@helmver)
-      puts("Node Helm Version: #{node_helm_ver}".colorize(:cyan))
+      puts("Node Helm Version: #{node_helmver}".colorize(:green))
     }
-    exit
-
-    #!puts("Please unset KUBECONFIG. We will be using 'contexts' instead".colorize(:red)) and
-    #  exit unless not ENV['KUBECONFIG']
-
-    # Ensure vm ips are in the $no_proxy
-    #proxy_export
-    #!puts("Ensure 'no_proxy' includes your node ips #{ips * ','}".colorize(:red)) and
-    #  exit unless not @proxy or ips.each{|x| ENV['no_proxy'].include?(x)}
-    #puts("$no_proxy configured correctly".colorize(:green)) if @proxy
-
-    # Clear K8s cache
-    #---------------------------------------------------------------------------
-    cache_dir = File.expand_path("~/.kube")
-    FileUtils.rm_rf(cache_dir)
-    FileUtils.mkdir_p(cache_dir)
 
     # (Idempotent) Configure nodes for clustering
     #---------------------------------------------------------------------------
     threads = []
     ips.each{|ip| threads << Thread.new{
-      Net::SSH.start(ip, @user, password:@pass, paranoid:false) do |ssh|
+      Net::SSH.start(ip, @user, password:@pass, verify_host_key: :never) do |ssh|
 
         # Configure journald for persistent storage
         journald_conf = '/etc/systemd/journald.conf'
@@ -247,10 +228,6 @@ class Kubinator
           api_args = [
             "--node-ip=#{ip}",
             "--hostname-override=#{ip}"
-            # Else: /etc/kubernetes/manifests/kube-apiserver.yaml
-            # - --runtime-config=batch/v2alpha1=true
-            # To enable jobs: kubeadmin init --config /etc/kubernetes/kubeadm.conf
-            #"--runtime-config=batch\\/v2alpha1=true"
           ]
           extra_args = "Environment=\"KUBELET_EXTRA_ARGS=#{api_args * ' '}\"\\n"
           ssh.exec!("sudo sed -i -e 's/\\(ExecStart=\\)$/#{extra_args}\\1/' #{kubeadm_conf}")
@@ -268,23 +245,6 @@ class Kubinator
           ssh.exec!("sudo sysctl -w vm.max_map_count=262144")
         else
           puts("#{ip}: Configured kernel params...skipped".colorize(:cyan))
-        end
-
-        # Set docker storage-driver from overlay2 to overlay
-        driver = "overlay"
-        daemon_conf = '/etc/docker/daemon.json'
-        if not ssh.exec!("[ -e #{daemon_conf} ] && echo 'exists'").include?('exists')
-
-          # Configure docker storage-driver
-          docker_conf = "{\\\"storage-driver\\\":\\\"#{driver}\\\"}"
-          ssh.exec!("sudo bash -c 'mkdir -p /etc/docker/'")
-          ssh.exec!("sudo bash -c 'echo \"#{docker_conf}\" > /etc/docker/daemon.json'")
-
-          ssh.exec!("sudo systemctl daemon-reload")
-          ssh.exec!("sudo systemctl restart docker")
-          puts("#{ip}: Configured Docker storage-driver...done".colorize(:cyan))
-        else
-          puts("#{ip}: Configured Docker storage-driver...skipped".colorize(:cyan))
         end
 
         # Optionally - configure private registry
@@ -318,7 +278,7 @@ class Kubinator
     # https://kubernetes.io/docs/getting-started-guides/kubeadm
     #---------------------------------------------------------------------------
     if all or init
-      Net::SSH.start(ips.first, @user, password:@pass, paranoid:false) do |ssh|
+      Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never) do |ssh|
         if not ssh.exec!("docker ps").include?("google")
 
           # Initialize master - pod-network injects the --cluster-cidr into kube-proxy
@@ -356,7 +316,8 @@ class Kubinator
           # Install Pod networking
           # Note: kube-dns will be pending until the pod networking is installed
           puts("Installing weave networking".colorize(:cyan))
-          ssh.exec!("#{@proxy_export}kubectl apply -f https://git.io/weave-kube-1.6"){|c,s,o|puts(o)}
+          #ssh.exec!("#{@proxy_export}kubectl apply -f https://git.io/weave-kube-1.6"){|c,s,o|puts(o)}
+          ssh.exec!("#{@proxy_export}kubectl apply -f https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')"){|c,s,o|puts(o)}
         end
       end
     end
@@ -365,12 +326,12 @@ class Kubinator
     #---------------------------------------------------------------------------
     if all or join
       nodes_to_join = []
-      Net::SSH.start(ips.first, @user, password:@pass, paranoid:false) do |ssh|
+      Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never) do |ssh|
         output = getpods(ssh:ssh)
         nodes_to_join = ips.select{|x| !output.include?(x)}
       end
       nodes_to_join.each do |ip|
-        Net::SSH.start(ip, @user, password:@pass, paranoid:false) do |ssh|
+        Net::SSH.start(ip, @user, password:@pass, verify_host_key: :never) do |ssh|
           puts("#{ip}: Joining cluster".colorize(:cyan))
           ssh.exec!("sudo kubeadm join --token=#{token} #{ips.first}:6443"){|c,s,o|puts(o)}
         end
@@ -379,7 +340,7 @@ class Kubinator
 
     # (Idempotent) Install dashboard and helm
     #---------------------------------------------------------------------------
-    Net::SSH.start(ips.first, @user, password:@pass, paranoid:false) do |ssh|
+    Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never) do |ssh|
 
       # Install dashboard
       if all or dashboard
@@ -407,7 +368,7 @@ class Kubinator
     # Configure local kubectl
     kube_conf = File.join(cache_dir, "config")
     FileUtils.rm_rf(kube_conf)
-    Net::SCP.download!(ips.first, @user, '.kube/config', kube_conf, ssh:{paranoid: false, password: @pass})
+    Net::SCP.download!(ips.first, @user, '.kube/config', kube_conf, ssh:{verify_host_key: :never, password: @pass})
     Sys.exec("kubectl config use-context kubernetes-admin@kubernetes")
     puts("#{'-' * 80}".colorize(:cyan))
     Sys.exec("kubectl get po --all-namespaces -o wide")
@@ -510,7 +471,7 @@ if __FILE__ == $0
       list: "Delete previous snapshot",
     }),
     Option.new(nil, 'Snapshot name to use if given')
-  ], examples: "Create snapshot: ./#{app} snap save\n" + 
+  ], examples: "Create snapshot: ./#{app} snap save\n" +
     "Restore previous snapshot: ./#{app} snap restore\n" +
     "Delete previous snapshot: ./#{app} snap delete\n" +
     "List previous snapshots: ./#{app} snap list\n")
