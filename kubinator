@@ -44,6 +44,7 @@ class Kubinator
   def initialize()
 
     # Minimum versions
+    @k8sver = '1.10.5'
     @helmver = '2.9.1'
     @vagrantver = '1.8.1'
     @virtualboxver = '5.0.32'
@@ -79,8 +80,6 @@ class Kubinator
     # Check that vagrant/virtualbox are on the path and clean previously deployed VMs
     Log.die("Ensure 'virtualbox' is installed and on the $PATH") unless FileUtils.exec?('vboxmanage')
     virtualboxver = `vboxmanage --version`[/\d+\.\d+\.\d+/]
-    !puts("Virtualbox needs to be version #{@virtualboxver} or higher".colorize(:red)) and
-      exit unless Gem::Version.new(virtualboxver) >= Gem::Version.new(@virtualboxver)
     !puts("Virtualbox needs to be version #{@virtualboxver} or higher".colorize(:red)) and
       exit unless Gem::Version.new(virtualboxver) >= Gem::Version.new(@virtualboxver)
     puts("Found Virtualbox: #{virtualboxver}".colorize(:green))
@@ -137,6 +136,16 @@ class Kubinator
     Sys.exec("vagrant reload")
   end
 
+  # Create a snapshot of the vms in the cluster
+  # @param cmd [String] save or restor
+  def snap(cmd)
+    nodes = getnodes.map{|x| x.name}
+
+    if cmd == "save"
+      puts(":: Creating snapshot for VMs [#{nodes * ','}]...".colorize(:light_yellow))
+    end
+  end
+
   # Create Kubernetes cluster from given nodes
   # @param cmd [String] to execute against the cluster
   # @param registry [String] to authorize
@@ -146,44 +155,50 @@ class Kubinator
 
     token = 'c74b2e.897db207c8e26de2'
 
-    # Determine k8s version
+    # Validate host environment
     #---------------------------------------------------------------------------
-    k8sver = nil
+    puts(":: Validating the K8s host environment".colorize(:cyan))
+
+    # Validate that kubectl is installed on the path and a supported version
+    Log.die("Ensure 'kubectl' is installed and on the $PATH") unless FileUtils.exec?('kubectl')
+    host_k8sver = `kubectl version`[/GitVersion.*v([\d]+\.[\d]+\.[\d]+)/, 1]
+    !puts("Kubectl needs to be version #{@k8sver} or higher".colorize(:red)) and
+      exit unless Gem::Version.new(host_k8sver) >= Gem::Version.new(@k8sver)
+    puts("Host K8s Version: #{host_k8sver}".colorize(:green))
+
+    # Validate that helm is installed on the path and a supported version
+    Log.die("Ensure 'helm' is installed and on the path") unless FileUtils.exec?('helm')
+    host_helmver = `helm version --client`[/\d+\.\d+\.\d+/]
+    !puts("Helm needs to be version #{@helmver} or higher".colorize(:red)) and
+      exit unless Gem::Version.new(host_helmver) >= Gem::Version.new(@helmver)
+    puts("Host Helm Version: #{host_helmver}".colorize(:green))
+
+    # Validate node environment
+    #---------------------------------------------------------------------------
+    puts(":: Validating the K8s node environment".colorize(:cyan))
+    node_k8sver = nil
+    puts("Nodes: #{ips * ', '}".colorize(:cyan))
     Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
-      k8sver = ssh.exec!("kubectl version")[/GitVersion.*v([\d]+\.[\d]+\.[\d]+)/, 1]
-      puts("Kubernetes Version: #{k8sver}".colorize(:cyan))
-      puts("Nodes: #{ips * ', '}".colorize(:cyan))
+      node_k8sver = ssh.exec!("kubectl version")[/GitVersion.*v([\d]+\.[\d]+\.[\d]+)/, 1]
+      !puts("Node K8s needs to be version #{@k8sver} or higher".colorize(:red)) and
+        exit unless Gem::Version.new(node_k8sver) >= Gem::Version.new(@k8sver)
+      puts("Node K8s Version: #{node_k8s_ver}".colorize(:cyan))
+
+      node_helmver = ssh.exec!("helm version --client")[/SemVer.*v([\d]+\.[\d]+\.[\d]+)/, 1]
+      !puts("Node Helm needs to be version #{@helmver} or higher".colorize(:red)) and
+        exit unless Gem::Version.new(node_helmver) >= Gem::Version.new(@helmver)
+      puts("Node Helm Version: #{node_helm_ver}".colorize(:cyan))
     }
     exit
 
-    # Validate the environment
-    #---------------------------------------------------------------------------
-    puts("Validating the environment for the correct k8s tooling".colorize(:cyan))
+    #!puts("Please unset KUBECONFIG. We will be using 'contexts' instead".colorize(:red)) and
+    #  exit unless not ENV['KUBECONFIG']
 
-    !puts("Please unset KUBECONFIG. We will be using 'contexts' instead".colorize(:red)) and
-      exit unless not ENV['KUBECONFIG']
-
-    # Check environment variables
-    !puts("Ensure 'no_proxy' includes your node ips #{ips * ','}".colorize(:red)) and
-      exit unless not @proxy or ips.each{|x| ENV['no_proxy'].include?(x)}
-    puts("$no_proxy configured correctly".colorize(:green)) if @proxy
-
-    # Validate that kubectl is installed on the path and a supported version
-    !puts("Ensure 'kubectl' is installed and on the path".colorize(:red)) and
-      exit unless find_executable('kubectl')
-    stdout, stderr, status = Open3.capture3("kubectl version")
-    kubectlver = stdout[/GitVersion:\"v\d+\.\d+\.\d+/].split('v').last
-    !puts("Kubectl needs to be version #{k8sver} or higher".colorize(:red)) and
-      exit unless Gem::Version.new(kubectlver) >= Gem::Version.new(k8sver)
-    puts("Kubectl: #{kubectlver}".colorize(:green))
-
-    # Validate that helm is installed on the path and a supported version
-    !puts("Ensure 'helm' is installed and on the path".colorize(:red)) and
-      exit unless find_executable('helm')
-    helmver = `helm version --client`[/\d+\.\d+\.\d+/]
-    !puts("Helm needs to be version #{@helmver} or higher".colorize(:red)) and
-      exit unless Gem::Version.new(helmver) >= Gem::Version.new(@helmver)
-    puts("Helm: #{helmver}".colorize(:green))
+    # Ensure vm ips are in the $no_proxy
+    #proxy_export
+    #!puts("Ensure 'no_proxy' includes your node ips #{ips * ','}".colorize(:red)) and
+    #  exit unless not @proxy or ips.each{|x| ENV['no_proxy'].include?(x)}
+    #puts("$no_proxy configured correctly".colorize(:green)) if @proxy
 
     # Clear K8s cache
     #---------------------------------------------------------------------------
@@ -456,16 +471,34 @@ if __FILE__ == $0
   version = FileUtils.version('.gemspec', /\s*spec\.version\s*=.*(\d+\.\d+\.\d+).*/)
   examples = "Deploy: ./#{app} deploy\n".colorize(:green)
   examples += "Deploy custom: ./#{app} deploy --ips=10,11,12 --cpu=2 --ram=4096\n".colorize(:green)
-
   cmdr = Commander.new(app:app, version:version, examples:examples)
+
+  # Deploy vms
+  #-----------------------------------------------------------------------------
   cmdr.add('deploy', 'Deploy Vagrant nodes', nodes:[
     Option.new('--nodes=NODES', 'List of last octet IPs (e.g. 10,11,2)', type:Array),
     Option.new('--cpu=CPU', 'Number of cpus to assign a new VM', type:Integer),
     Option.new('--ram=RAM', 'Amount of ram to assign a new VM', type:Integer),
   ], examples: "Standard: ./#{app} deploy\n" +
     "Custom nodes: ./#{app} deploy --ips=10,11,12 --cpu=2 --ram=4096")
+
+  # Manage vm snapshots
+  #-----------------------------------------------------------------------------
+  cmdr.add('snap', 'Manage VM snapshots', nodes:[
+    Option.new(nil, 'Snapshot command to execute', allowed:{
+      save: "Create a new snapshot",
+      restore: "Restore previous snapshot",
+    }),
+  ], examples: "Create snapshot: ./#{app} snap save\n" + 
+    "Restore snapshot: ./#{app} snap restore\n")
+
+  # Destroy vms
+  #-----------------------------------------------------------------------------
   cmdr.add('destroy', 'Destroy Vagrant nodes', nodes:[
   ], examples: "Destroy nodes: ./#{app} destroy\n")
+
+  # Manage K8s cluster
+  #-----------------------------------------------------------------------------
   cmdr.add('cluster', 'Kubernetes cluster control', nodes:[
     Option.new(nil, 'Cluster command', required:true, allowed:{
       init: 'Initialize the Kubernetes cluster'
@@ -473,10 +506,14 @@ if __FILE__ == $0
   ], examples: "Initialize cluster: ./#{app} cluster init\n")
     # Option.new('--registry=REGISTRY', 'Authorize the given private registry', type:String),
     #"Private registry: ./#{app} deploy --registry=http://example.registry.com")
+
   cmdr.parse!
   begin
     if cmdr[:deploy]
       kubinator.deploy(nodes:cmdr[:deploy][:nodes], cpu:cmdr[:deploy][:cpu], ram:cmdr[:deploy][:ram])
+    end
+    if cmdr[:snap]
+      kubinator.snap(cmdr[:snap][:snap0])
     end
     if cmdr[:destroy]
       kubinator.destroy
