@@ -170,12 +170,12 @@ class Kubinator
   # @param registry [String] to authorize
   def cluster(cmd, registry:nil)
     puts(":: Deploying Kubernetes Cluster...".colorize(:light_yellow))
+    proxy_export = "[ -f /etc/profile.d/setproxy.sh ] && source /etc/profile.d/setproxy.sh"
     elapse = Time.now
     ips = getnodes.map{|x| x.ip}
-    all = cmd.include?('all')
     init = cmd.include?('init')
-
-    token = 'c74b2e.897db207c8e26de2'
+    weave = cmd.include?('weave')
+    flannel = cmd.include?('flannel')
 
     # Validate host environment
     #---------------------------------------------------------------------------
@@ -282,15 +282,25 @@ class Kubinator
     # (Idempotent) Initialize master node
     # https://kubernetes.io/docs/getting-started-guides/kubeadm
     #---------------------------------------------------------------------------
-    if all or init
-      Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never) do |ssh|
+    join = nil
+    if init
+      Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
         if not ssh.exec!("docker ps").include?("apiserver")
           puts(":: Initialize master node '#{ips.first}'".colorize(:cyan))
 
           # Initialize master - pod-network injects the --cluster-cidr into kube-proxy
-          cmd = "sudo kubeadm init --token=#{token} --kubernetes-version=v#{@k8sver} --apiserver-advertise-address=#{ips.first}"
-          ssh.exec!(cmd){|c,s,o|puts(o)}
-          (1..10).each{|i| puts("Waiting for k8s networking to quiesce..#{i}"); sleep(1)}
+          cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
+          cmd += "--apiserver-advertise-address=#{ips.first} "
+          # https://github.com/kubernetes/kops/issues/4390
+          cmd += "--node-name=#{ips.first}"
+          # https://github.com/coreos/flannel/blob/master/Documentation/kubernetes.md
+          cmd += " --pod-network-cidr=10.244.0.0/16" if flannel
+          ssh.exec!(cmd){|c,s,o|
+            puts(o)
+            # e.g.  kubeadm join 192.168.56.10:6443 --token u6wor2.6kinrlvcbtxcoqo4 --discovery-token-ca-cert-hash
+            # sha256:1112aafe50e27d54bccfd45d956f658a18b05e8b0ccf90c264ec17b026d01a8f
+            join = o.strip if o.include?("kubeadm join")
+          }
 
           # Setup kubectl on master node for both vagrant and root users
           ssh.exec!("mkdir -p ~/.kube")
@@ -300,13 +310,28 @@ class Kubinator
           ssh.exec!("sudo chown $(id -u):$(id -g) ~/.kube/config")
           ssh.exec!("kubectl config use-context kubernetes-admin@kubernetes")
           ssh.exec!("sudo kubectl config use-context kubernetes-admin@kubernetes")
+          ssh.exec!("kubectl cluster-info"){|c,s,o|puts(o)}
 
           # Disable RBAC
           # Bottom of https://kubernetes.io/docs/admin/authorization/rbac
+          puts("Disabling RBAC...".colorize(:cyan))
           ssh.exec!("kubectl create clusterrolebinding permissive-binding --clusterrole=cluster-admin --user=admin --user=kubelet --group=system:serviceaccounts"){|c,s,o|puts(o)}
 
-          # Patch kube-proxy for dns resolution using --proxy-mode=iptables
+          # Taint master node to allow pods to be scheduled on it
+          # Check current taints in Taints section: kubectl describe node
+          puts("Tainting the master node to allow pods to be scheduled on it".colorize(:cyan))
+          ssh.exec!("kubectl taint nodes --all node-role.kubernetes.io/master-"){|c,s,o|puts(o)}
+
+          # Wait for kube-proxy to start
+          # seems to be necessary to wait before adding pod networking for kube-dns to work properly
+          print("Waiting for k8s networking to quiesce...")
+          (1..10).each{|i| print("."); sleep(1)}
+          puts
+
+          # Configure kube-proxy
+          # using --proxy-mode=iptables for dns resolution
           # https://github.com/kubernetes/kubernetes/issues/18934
+          puts("Patching kube-proxy...".colorize(:cyan))
           get_kube_proxy = "kubectl -n kube-system get ds kube-proxy -o json"
           mod_kube_proxy = " | jq '.spec.template.spec.containers[0].command |= .+ [\"--proxy-mode=iptables\"]'"
           mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--cluster-cidr=10.32.0.0/12\"]'"
@@ -314,34 +339,39 @@ class Kubinator
           ssh.exec!("#{get_kube_proxy} #{mod_kube_proxy} #{set_kube_proxy}"){|c,s,o|puts(o)}
           ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
 
-          # Taint master node to allow pods to be scheduled on it
-          # Check current taints in Taints section: kubectl describe node
-          puts("Tainting the master node to allow pods to be scheduled on it".colorize(:cyan))
-          ssh.exec!("kubectl taint nodes --all node-role.kubernetes.io/master-"){|c,s,o|puts(o)}
-
           # Install Pod networking
-          # Note: kube-dns will be pending until the pod networking is installed
-          puts("Installing weave networking".colorize(:cyan))
-          ssh.exec!("kubectl apply -f https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}"){|c,s,o|puts(o)}
+          # See logs: sudo journalctl -u kubelet
+          # https://github.com/weaveworks/weave/issues/2826
+          # https://kubernetes.io/docs/concepts/cluster-administration/addons/
+          puts("Installing pod networking".colorize(:cyan))
+          podnet = "https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}"
+          podnet = "https://raw.githubusercontent.com/coreos/flannel/v0.10.0/Documentation/kube-flannel.yml" if flannel
+          ssh.exec!("#{proxy_export}; kubectl apply -f #{podnet}"){|c,s,o|puts(o)}
+
+          # Validate that pod networking is operational
+          # Note: coredns will be pending until the pod networking is installed
+          # check that coredns is running with 'kubectl get po --all-namespaces'
         end
-      end
+      }
     end
     exit
 
     # (Idempotent) Configure slaves to join cluster
     #---------------------------------------------------------------------------
-    if all or join
+    if init
       nodes_to_join = []
-      Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never) do |ssh|
+      Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
+        puts(":: Determine nodes to join cluster...".colorize(:cyan))
         output = getpods(ssh:ssh)
-        nodes_to_join = ips.select{|x| !output.include?(x)}
-      end
-      nodes_to_join.each do |ip|
-        Net::SSH.start(ip, @user, password:@pass, verify_host_key: :never) do |ssh|
+        nodes_to_join = ips[1..-1].select{|x| !output.include?(x)}
+        puts(nodes_to_join)
+      }
+      nodes_to_join.each{|ip|
+        Net::SSH.start(ip, @user, password:@pass, verify_host_key: :never){|ssh|
           puts("#{ip}: Joining cluster".colorize(:cyan))
-          ssh.exec!("sudo kubeadm join --token=#{token} #{ips.first}:6443"){|c,s,o|puts(o)}
-        end
-      end
+          ssh.exec!("sudo #{join}"){|c,s,o|puts(o)}
+        }
+      }
     end
 
     # (Idempotent) Install dashboard and helm
@@ -384,10 +414,16 @@ class Kubinator
     puts("Your cluster will need a few minutes to be fully operational".colorize(:cyan))
   end
 
+  # Destroy the vagrant vms
+  def destroy
+    getnodes.each{|node|
+      Sys.exec("vagrant destroy #{node.name} -f")
+    }
+  end
+
   # Wait for the given pod to be ready
   # Blocks until service is ready
-  # ==== Attributes
-  # * +pod+ - pod by name to wait for
+  # @param pod [String] name to wait for
   def podready!(pod)
     details = getpods(pod:pod)
     status = details ? details[3] : ""
@@ -409,17 +445,9 @@ class Kubinator
     end
   end
 
-  # Destroy the vagrant vms
-  def destroy
-    getnodes.each{|node|
-      Sys.exec("vagrant destroy #{node.name} -f")
-    }
-  end
-
   # Get pod details
-  # ==== Attributes
-  # * +pod+ - pod by name to pull details for
-  # * +ssh+ - optionaly use ssh connection to use
+  # @param pod [String] name to pull details for
+  # @param ssh [String] optional ssh connection to use
   def getpods(pod:nil, ssh:nil)
     details = ssh ? ssh.exec!("kubectl get pod --all-namespaces -o wide") :
       `kubectl get pod --all-namespaces -o wide`
@@ -493,8 +521,8 @@ if __FILE__ == $0
   #-----------------------------------------------------------------------------
   cmdr.add('cluster', 'Kubernetes cluster control', nodes:[
     Option.new(nil, 'Cluster command', required:true, type:Array, allowed:{
-      all: 'Init cluster with all customizations',
-      init: 'Initialize the Kubernetes cluster'
+      init: 'Initialize the Kubernetes cluster',
+      flannel: 'Use the flannel pod network'
     }),
   ], examples: "Initialize cluster: ./#{app} cluster init\n")
     # Option.new('--registry=REGISTRY', 'Authorize the given private registry', type:String),
