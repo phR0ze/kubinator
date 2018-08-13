@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name        = 'kubinator'
-  spec.version     = '0.1.9'
+  spec.version     = '0.1.10'
   spec.summary     = "Deployment automation for Kubernetes"
   spec.authors     = ["Patrick Crummett"]
   spec.homepage    = 'https://github.com/phR0ze/kubinator'
@@ -15,7 +15,7 @@ Gem::Specification.new do |spec|
   # Development dependencies
   spec.add_development_dependency('minitest', '~> 5.11.3')
   spec.add_development_dependency('coveralls', '~> 0.8.22')
-  spec.add_development_dependency('bundler', '~> 1.16.3')
+  spec.add_development_dependency('bundler', '~> 1.16')
   spec.add_development_dependency('rake', '~> 12.0')
 end
 # vim: ft=ruby:ts=2:sw=2:sts=2
