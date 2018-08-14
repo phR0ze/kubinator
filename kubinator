@@ -302,7 +302,7 @@ class Kubinator
             puts(o)
             # e.g.  kubeadm join 192.168.56.10:6443 --token u6wor2.6kinrlvcbtxcoqo4 --discovery-token-ca-cert-hash
             # sha256:1112aafe50e27d54bccfd45d956f658a18b05e8b0ccf90c264ec17b026d01a8f
-            join = o.strip if o.include?("kubeadm join")
+            join = o.split("\n").find{|x| x.include?("kubeadm join")}.strip if o.include?("kubeadm join")
           }
 
           # Setup kubectl on master node for both vagrant and root users
@@ -351,7 +351,6 @@ class Kubinator
         end
       }
     end
-    exit
 
     # (Idempotent) Configure slaves to join cluster
     #---------------------------------------------------------------------------
@@ -365,11 +364,13 @@ class Kubinator
       }
       nodes_to_join.each{|ip|
         Net::SSH.start(ip, @user, password:@pass, verify_host_key: :never){|ssh|
-          puts("#{ip}: Joining cluster".colorize(:cyan))
+          puts("#{ip.colorize(:cyan)}: Joining cluster")
+          puts("#{ip.colorize(:cyan)}: sudo #{join}")
           ssh.exec!("sudo #{join}"){|c,s,o|puts(o)}
         }
       }
     end
+    exit
 
     # (Idempotent) Install dashboard and helm
     #---------------------------------------------------------------------------
