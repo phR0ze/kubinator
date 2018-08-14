@@ -3,14 +3,15 @@
 
 <img align="left" width="48" height="48" src="https://github.com/phR0ze/cyberlinux/blob/master/art/logo_256x256.png">
 <b><i>Kubinator</i></b> is a <a href="https://github.com/phR0ze/cyberlinux">cyberlinux</a> backed project leveraging the pre-packed
-<a href="https://app.vagrantup.com/phR0ze/boxes/cyberlinux-k8snode">cyberlinux Vagrant box</a>
-
-providing Kubinator with the ability to <b><i>deploy a new K8s cluster in under 10 minutes</i></b>
+<a href="https://app.vagrantup.com/phR0ze/boxes/cyberlinux-k8snode">cyberlinux Vagrant box</a> to
+quickly deploy a configurable number of Vagrant Virtual Machines as a Kubernetes cluster in <b><i>under 10 minutes</i></b>
 
 ***Kubinator*** can quickly deploy a K8s cluster with customizable VMs, manage vm snapshots and
 automate cluster customizations all from a single simple command line.
 
 [![Build Status](https://travis-ci.org/phR0ze/kubinator.svg)](https://travis-ci.org/phR0ze/kubinator)
+
+Demo
 
 ## Disclaimer
 ***kubinator*** comes with absolutely no guarantees or support of any kind. It is to be used at
@@ -33,7 +34,7 @@ strictly the responsiblity of the user and not the developer/creator of ***kubin
 the Kubernetes cluster. ***Kubinator*** orchestrates [Vagrant](https://www.vagrantup.com/intro/index.html)
 to then in turn pull the strings of [VirtualBox](https://www.virtualbox.org/). Kubinator is able to
 get a new Kubernetes cluster up and running in under 10 minutes by using a pre-built [Vagrant
-box](https://app.vagrantup.com/phR0ze/boxes/cyberlinux-k8snode) as the base of Virtual Machines
+box](https://app.vagrantup.com/phR0ze/boxes/cyberlinux-k8snode) as the base of the Virtual Machines
 backing the K8s cluster.
 <a href="doc/images/vagrantup-k8snode.jpg"><img src="doc/images/vagrantup-k8snode.jpg"></a>
 
@@ -49,13 +50,14 @@ in other ecosystem and/or installer tool with a larger scope.
 2018***
 
 ### CNI Plugins <a name="cni-plugins"/></a>
-Documentation on how to get container networking up and running is not detailed enough.  I spent a
-few house trying to determine why I was missing either the ***loopback*** plugin when attempting to
-configure weave or the ***portmap*** plugin when attempting to configure flannel.  I finally
-realized that the Container Networking project was split into two pieces, the CNI utility and the
-[CNI plugins](https://github.com/containernetworking/plugins).
+Documentation on how to get container networking up and running is not detailed enough for how
+complicated the process is.  I spent a few house trying to determine why I was missing either the
+***loopback*** plugin when attempting to configure weave or the ***portmap*** plugin when attempting
+to configure flannel.  I finally realized that the Container Networking project was split into two
+pieces, the CNI utility and the [CNI plugins](https://github.com/containernetworking/plugins).
 
-The ***cyberlinux*** project contains my packaging of CNI https://github.com/phR0ze/cyberlinux/blob/master/aur/kubernetes/PKGBUILD
+The ***cyberlinux*** project contains packaging of CNI include the plugins to avoid this issue
+https://github.com/phR0ze/cyberlinux/blob/master/aur/kubernetes/PKGBUILD
 
 ## Deploy Kubinator <a name="deploy-kubinator"/></a>
 There is no ***host*** Linux distribution requirements here other than something that supports

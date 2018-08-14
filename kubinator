@@ -226,16 +226,14 @@ class Kubinator
           puts("#{ip}: Configure node journald...skipped".colorize(:cyan))
         end
 
-        # Configure kubelet/k8s api server
-        # https://kubernetes.io/docs/admin/kubeadm
-        kubeadm_conf = '/etc/systemd/system/kubelet.service.d/10-kubeadm.conf'
-        if not ssh.exec!("cat #{kubeadm_conf}").include?(ip)
-          api_args = [
+        # Configure kubelet for each node
+        kubelet = '/etc/default/kubelet'
+        if not ssh.exec!("cat #{kubelet}").include?(ip)
+          extra_args = [
             "--node-ip=#{ip}",
             "--hostname-override=#{ip}"
-          ]
-          extra_args = "Environment=\"KUBELET_EXTRA_ARGS=#{api_args * ' '}\"\\n"
-          ssh.exec!("sudo sed -i -e 's/\\(ExecStart=\\)$/#{extra_args}\\1/' #{kubeadm_conf}")
+          ] * ' '
+          ssh.exec!("sudo sed -i -e 's/\\(KUBELET_EXTRA_ARGS=\\)\\(.*$\\)/\\1#{extra_args} \\2/' #{kubelet}")
           ssh.exec!("sudo systemctl daemon-reload")
           ssh.exec!("sudo systemctl restart kubelet")
           puts("#{ip}: Configured Kubelet private network ip...done".colorize(:cyan))
@@ -353,6 +351,7 @@ class Kubinator
         end
       }
     end
+    exit
 
     # (Idempotent) Configure slaves to join cluster
     #---------------------------------------------------------------------------
@@ -371,7 +370,6 @@ class Kubinator
         }
       }
     end
-    exit
 
     # (Idempotent) Install dashboard and helm
     #---------------------------------------------------------------------------
