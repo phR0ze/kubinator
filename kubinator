@@ -349,11 +349,10 @@ class Kubinator
 
           # Note: coredns will be pending until the pod networking is installed
           # check that coredns is running with 'kubectl get po --all-namespaces'
-          podready!(pod:'coredns', ssh:ssh)
+          podready!('coredns', ssh:ssh)
         end
       }
     end
-    exit
 
     # (Idempotent) Configure slaves to join cluster
     #---------------------------------------------------------------------------
@@ -372,10 +371,15 @@ class Kubinator
         }
       }
     end
+    exit
 
     # (Idempotent) Install dashboard and helm
     #---------------------------------------------------------------------------
     Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never) do |ssh|
+      #podready!('etcd', ssh:ssh)
+      #podready!('apiserver', ssh:ssh)
+      #podready!('controller', ssh:ssh)
+      #podready!('scheduler', ssh:ssh)
 
       # Install dashboard
       if all or dashboard
@@ -426,7 +430,7 @@ class Kubinator
   # @param ssh [String] optional ssh connection to use
   def podready!(pod, ssh:nil)
     details = getpods(pod:pod, ssh:ssh)
-    status = details ? details[3] : ""
+    status = details ? details[3] : "Missing"
 
     # Skip wait if pod already running
     if status.include?('Running')
@@ -438,8 +442,7 @@ class Kubinator
       until ready > 1
         !puts("Waiting for '#{pod}' to be ready - #{status}".colorize(:cyan)) and sleep(10)
         details = getpods(pod:pod, ssh:ssh)
-        status = details ? details[3] : ""
-
+        status = details ? details[3] : "Missing"
         ready += 1 if status.include?('Running')
       end
     end
@@ -453,7 +456,7 @@ class Kubinator
       `kubectl get pod --all-namespaces -o wide`
     if pod
       details = details.split("\n").find{|x| x.include?(pod)}
-      details = details.split(' ').map{|x| x.strip} if details
+      details = details ? details.split(' ').map{|x| x.strip} : nil
       return details
     end
     return details
