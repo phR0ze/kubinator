@@ -404,7 +404,7 @@ class Kubinator
       end
     end
 
-    puts("Master Init took: #{Time.now - elapse} sec".colorize(:light_yellow))
+    puts("Cluster creation took: #{Time.now - elapse} sec".colorize(:light_yellow))
 
     # Configure local kubectl
     kube_conf = File.join(cache_dir, "config")
