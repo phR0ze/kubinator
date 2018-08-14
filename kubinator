@@ -231,7 +231,8 @@ class Kubinator
         if not ssh.exec!("cat #{kubelet}").include?(ip)
           extra_args = [
             "--node-ip=#{ip}",
-            "--hostname-override=#{ip}"
+            # Seems to cause joins to fail
+            #"--hostname-override=#{ip}"
           ] * ' '
           ssh.exec!("sudo sed -i -e 's/\\(KUBELET_EXTRA_ARGS=\\)\\(.*$\\)/\\1#{extra_args} \\2/' #{kubelet}")
           ssh.exec!("sudo systemctl daemon-reload")
