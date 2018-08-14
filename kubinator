@@ -173,7 +173,10 @@ class Kubinator
     proxy_export = "[ -f /etc/profile.d/setproxy.sh ] && source /etc/profile.d/setproxy.sh"
     elapse = Time.now
     ips = getnodes.map{|x| x.ip}
+    all = cmd.include?('all')
     init = cmd.include?('init')
+    dashboard = cmd.include?('dashboard')
+    helm = cmd.include?('helm')
     weave = cmd.include?('weave')
     flannel = cmd.include?('flannel')
     flannel = true if !weave
@@ -283,7 +286,7 @@ class Kubinator
     # https://kubernetes.io/docs/getting-started-guides/kubeadm
     #---------------------------------------------------------------------------
     join = nil
-    if init
+    if all or init
       Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
         if not ssh.exec!("docker ps").include?("apiserver")
           puts(":: Initialize master node '#{ips.first}'".colorize(:cyan))
@@ -352,7 +355,7 @@ class Kubinator
 
     # (Idempotent) Configure slaves to join cluster
     #---------------------------------------------------------------------------
-    if init
+    if all or init
       nodes_to_join = []
       Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
         puts(":: Determine nodes to join cluster...".colorize(:cyan))
@@ -368,15 +371,14 @@ class Kubinator
         }
       }
     end
-    exit
 
     # (Idempotent) Install dashboard and helm
     #---------------------------------------------------------------------------
-    Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never) do |ssh|
-      #podready!('etcd', ssh:ssh)
-      #podready!('apiserver', ssh:ssh)
-      #podready!('controller', ssh:ssh)
-      #podready!('scheduler', ssh:ssh)
+    Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
+      podready!('etcd', ssh:ssh)
+      podready!('apiserver', ssh:ssh)
+      podready!('controller', ssh:ssh)
+      podready!('scheduler', ssh:ssh)
 
       # Install dashboard
       if all or dashboard
@@ -393,25 +395,25 @@ class Kubinator
       if all or helm
         if not getpods(pod:'tiller', ssh:ssh)
           puts("#{ips.first}: Initializing helm".colorize(:cyan))
-          ssh.exec!("#{@proxy_export}helm init"){|c,s,o|puts(o)}
-          ssh.exec!("#{@proxy_export}helm repo update"){|c,s,o|puts(o)}
+          ssh.exec!("#{proxy_export}; helm init"){|c,s,o|puts(o)}
+          ssh.exec!("#{proxy_export}; helm repo update"){|c,s,o|puts(o)}
         else
           puts("#{ips.first}: Initializing/updating helm...skipped".colorize(:cyan))
         end
       end
-    end
+    }
 
     puts("Cluster creation took: #{Time.now - elapse} sec".colorize(:light_yellow))
 
     # Configure local kubectl
-    kube_conf = File.join(cache_dir, "config")
+    kube_conf_dir = File.expand_path("~/.kube")
+    FileUtils.mkdir_p(kube_conf_dir) if Dir.exists?(kube_conf_dir)
+    kube_conf = File.join(kube_conf_dir, "config.kubinator")
     FileUtils.rm_rf(kube_conf)
     Net::SCP.download!(ips.first, @user, '.kube/config', kube_conf, ssh:{verify_host_key: :never, password: @pass})
-    Sys.exec("kubectl config use-context kubernetes-admin@kubernetes")
+    Sys.exec("ln -sf ~/.kube/config.kubinator ~/.kube/config")
     puts("#{'-' * 80}".colorize(:cyan))
     Sys.exec("kubectl get po --all-namespaces -o wide")
-    puts("#{'-' * 80}".colorize(:cyan))
-    puts("Your cluster will need a few minutes to be fully operational".colorize(:cyan))
   end
 
   # Destroy the vagrant vms
@@ -521,9 +523,12 @@ if __FILE__ == $0
   #-----------------------------------------------------------------------------
   cmdr.add('cluster', 'Kubernetes cluster control', nodes:[
     Option.new(nil, 'Cluster command', required:true, type:Array, allowed:{
+      all: 'Init cluster and deploy extras',
       init: 'Initialize the Kubernetes cluster',
       weave: 'Use the weave pod network',
-      flannel: 'Use the flannel pod network'
+      flannel: 'Use the flannel pod network',
+      dashboard: 'Deploy K8s dashboard to cluster',
+      helm: 'Deploy Helm to cluster'
     }),
   ], examples: "Initialize cluster: ./#{app} cluster init\n")
     # Option.new('--registry=REGISTRY', 'Authorize the given private registry', type:String),
