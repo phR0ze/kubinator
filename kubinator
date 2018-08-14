@@ -375,16 +375,18 @@ class Kubinator
     # (Idempotent) Install dashboard and helm
     #---------------------------------------------------------------------------
     Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
-      podready!('etcd', ssh:ssh)
-      podready!('apiserver', ssh:ssh)
-      podready!('controller', ssh:ssh)
-      podready!('scheduler', ssh:ssh)
+      if (all || init) && (dashboard || helm)
+        podready!('etcd', ssh:ssh)
+        podready!('apiserver', ssh:ssh)
+        podready!('controller', ssh:ssh)
+        podready!('scheduler', ssh:ssh)
+      end
 
       # Install dashboard
       if all or dashboard
         if not getpods(pod:'dashboard', ssh:ssh)
           puts("#{ips.first}: Installing dashboard".colorize(:cyan))
-          url = "https://rawgit.com/kubernetes/dashboard/master/src/deploy/kubernetes-dashboard.yaml"
+          url = "https://raw.githubusercontent.com/kubernetes/dashboard/master/src/deploy/recommended/kubernetes-dashboard.yaml"
           puts(ssh.exec!("kubectl create -f #{url}"))
         else
           puts("#{ips.first}: Installing dashboard...skipped".colorize(:cyan))
@@ -401,6 +403,9 @@ class Kubinator
           puts("#{ips.first}: Initializing/updating helm...skipped".colorize(:cyan))
         end
       end
+
+      podready!('dashboard', ssh:ssh) if all or dashboard
+      podready!('tiller', ssh:ssh) if all or helm
     }
 
     puts("Cluster creation took: #{Time.now - elapse} sec".colorize(:light_yellow))
