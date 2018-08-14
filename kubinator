@@ -292,10 +292,6 @@ class Kubinator
           cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
           cmd += "--apiserver-advertise-address=#{ips.first} "
 
-          # Doesn't seem to be needed for weave
-          # https://github.com/kubernetes/kops/issues/4390
-          #cmd += "--node-name=#{ips.first} "
-
           # Flannel requires this to work
           # https://github.com/coreos/flannel/blob/master/Documentation/kubernetes.md
           cmd += " --pod-network-cidr=10.244.0.0/16" if flannel
