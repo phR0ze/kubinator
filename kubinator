@@ -296,10 +296,6 @@ class Kubinator
           # https://github.com/kubernetes/kops/issues/4390
           cmd += "--node-name=#{ips.first} "
 
-          # CRI is flagged as an error if missing even though it isn't required
-          # https://github.com/kubernetes/kubeadm/issues/992
-          cmd += "--ignore-preflight-errors=cri"
-
           # Flannel requires this to work
           # https://github.com/coreos/flannel/blob/master/Documentation/kubernetes.md
           cmd += " --pod-network-cidr=10.244.0.0/16" if flannel
@@ -331,12 +327,6 @@ class Kubinator
           puts("Tainting the master node to allow pods to be scheduled on it".colorize(:cyan))
           ssh.exec!("kubectl taint nodes --all node-role.kubernetes.io/master-"){|c,s,o|puts(o)}
 
-          # Wait for kube-proxy to start
-          # seems to be necessary to wait before adding pod networking for kube-dns to work properly
-          print("Waiting for k8s networking to quiesce...")
-          (1..10).each{|i| print("."); sleep(1)}
-          puts
-
           # Configure kube-proxy
           # using --proxy-mode=iptables for dns resolution
           # https://github.com/kubernetes/kubernetes/issues/18934
@@ -357,9 +347,9 @@ class Kubinator
           podnet = "https://raw.githubusercontent.com/coreos/flannel/v0.10.0/Documentation/kube-flannel.yml" if flannel
           ssh.exec!("#{proxy_export}; kubectl apply -f #{podnet}"){|c,s,o|puts(o)}
 
-          # Validate that pod networking is operational
           # Note: coredns will be pending until the pod networking is installed
           # check that coredns is running with 'kubectl get po --all-namespaces'
+          podready!(pod:'coredns', ssh:ssh)
         end
       }
     end
@@ -433,8 +423,9 @@ class Kubinator
   # Wait for the given pod to be ready
   # Blocks until service is ready
   # @param pod [String] name to wait for
-  def podready!(pod)
-    details = getpods(pod:pod)
+  # @param ssh [String] optional ssh connection to use
+  def podready!(pod, ssh:nil)
+    details = getpods(pod:pod, ssh:ssh)
     status = details ? details[3] : ""
 
     # Skip wait if pod already running
@@ -446,7 +437,7 @@ class Kubinator
       ready = 0
       until ready > 1
         !puts("Waiting for '#{pod}' to be ready - #{status}".colorize(:cyan)) and sleep(10)
-        details = getpods(pod:pod)
+        details = getpods(pod:pod, ssh:ssh)
         status = details ? details[3] : ""
 
         ready += 1 if status.include?('Running')
@@ -531,6 +522,7 @@ if __FILE__ == $0
   cmdr.add('cluster', 'Kubernetes cluster control', nodes:[
     Option.new(nil, 'Cluster command', required:true, type:Array, allowed:{
       init: 'Initialize the Kubernetes cluster',
+      weave: 'Use the weave pod network',
       flannel: 'Use the flannel pod network'
     }),
   ], examples: "Initialize cluster: ./#{app} cluster init\n")

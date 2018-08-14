@@ -1,8 +1,8 @@
 # Kubinator
-***Kubinator*** provides deployment automation for Kubernetes  
+***Kubinator*** provides deployment automation for Kubernetes
 
 <img align="left" width="48" height="48" src="https://github.com/phR0ze/cyberlinux/blob/master/art/logo_256x256.png">
-<b><i>Kubinator</i></b> is a <a href="https://github.com/phR0ze/cyberlinux">cyberlinux</a> backed project leveraging the pre-packed 
+<b><i>Kubinator</i></b> is a <a href="https://github.com/phR0ze/cyberlinux">cyberlinux</a> backed project leveraging the pre-packed
 <a href="https://app.vagrantup.com/phR0ze/boxes/cyberlinux-k8snode">cyberlinux Vagrant box</a>
 
 providing Kubinator with the ability to <b><i>deploy a new K8s cluster in under 10 minutes</i></b>
@@ -20,13 +20,14 @@ strictly the responsiblity of the user and not the developer/creator of ***kubin
 ### Table of Contents
 * [Kubinator Overview](#kubinator-overview)
   * [Kubeadm](#kubeadm)
+  * [CNI Plugins](#cni-plugins)
 * [Deploy Kubinator](#deploy-kubinator)
   * [Deploy on cyberlinux](#deploy-on-cyberlinux)
   * [Deploy on Arch Linux](#deploy-on-arch-linux)
   * [Deploy on Ubuntu](#deploy-on-ubuntu)
 * [Deploy Kubernetes](#deploy-kubernetes)
   * [Vagrant Node Access](#vagrant-node-access)
- 
+
 ## Kubinator Overview <a name="kubinator-overview"/></a>
 ***Kubinator*** uses Ruby to automate the management/orchestration of the Virtual Machines backing
 the Kubernetes cluster. ***Kubinator*** orchestrates [Vagrant](https://www.vagrantup.com/intro/index.html)
@@ -46,6 +47,15 @@ in other ecosystem and/or installer tool with a larger scope.
 
 ***kubeadm*** is currently in Beta but expecred to graduate to ***General Availability (GA) in
 2018***
+
+### CNI Plugins <a name="cni-plugins"/></a>
+Documentation on how to get container networking up and running is not detailed enough.  I spent a
+few house trying to determine why I was missing either the ***loopback*** plugin when attempting to
+configure weave or the ***portmap*** plugin when attempting to configure flannel.  I finally
+realized that the Container Networking project was split into two pieces, the CNI utility and the
+[CNI plugins](https://github.com/containernetworking/plugins).
+
+The ***cyberlinux*** project contains my packaging of CNI https://github.com/phR0ze/cyberlinux/blob/master/aur/kubernetes/PKGBUILD
 
 ## Deploy Kubinator <a name="deploy-kubinator"/></a>
 There is no ***host*** Linux distribution requirements here other than something that supports
@@ -134,20 +144,10 @@ Deploying a development Kubernetes cluster with kubinator is a few simple steps:
   ./kubinator snap save
   ```
 
-2. Add node IPs to no_proxy  
-  ```bash
-  export no_proxy=$no_proxy,192.168.56.10,192.168.56.11,192.168.56.12
-  ```
-
 3. Deploy K8s on vagrant nodes  
-  This step ***clears your ~/.kube*** cache
   ```bash
-  ./kubinator deploy --cluster
+  ./kubinator cluster init
   ```
-  Note: i'd recommend taking another snapshot of your vms at this point
-  Note: if this step seems to hang at the "waiting for the control plane
-  to become ready" stage (i.e. more than 10min) ensure that your
-  ***no_proxy*** includes your nodes as configured in the previous step.
 
 4. Access k8s cluster  
   The deployment process will configure a ***kubernetes-admin@kubernetes*** context
