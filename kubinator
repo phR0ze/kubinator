@@ -176,6 +176,7 @@ class Kubinator
     init = cmd.include?('init')
     weave = cmd.include?('weave')
     flannel = cmd.include?('flannel')
+    flannel = true if !weave
 
     # Validate host environment
     #---------------------------------------------------------------------------
@@ -291,9 +292,9 @@ class Kubinator
           cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
           cmd += "--apiserver-advertise-address=#{ips.first} "
 
-          # Master initialization fails without this
+          # Doesn't seem to be needed for weave
           # https://github.com/kubernetes/kops/issues/4390
-          cmd += "--node-name=#{ips.first} "
+          #cmd += "--node-name=#{ips.first} "
 
           # Flannel requires this to work
           # https://github.com/coreos/flannel/blob/master/Documentation/kubernetes.md
@@ -342,7 +343,7 @@ class Kubinator
           # https://github.com/weaveworks/weave/issues/2826
           # https://kubernetes.io/docs/concepts/cluster-administration/addons/
           puts("Installing pod networking".colorize(:cyan))
-          podnet = "https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}"
+          podnet = "https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}" if weave
           podnet = "https://raw.githubusercontent.com/coreos/flannel/v0.10.0/Documentation/kube-flannel.yml" if flannel
           ssh.exec!("#{proxy_export}; kubectl apply -f #{podnet}"){|c,s,o|puts(o)}
 
