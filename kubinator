@@ -373,22 +373,22 @@ class Kubinator
           # See configs kube-proxy is currently using:
           # kubectl -n kube-system get ds kube-proxy -o json | jq '.spec.template.spec.containers[0].command'
           # --------------------------------------------------------------------
-#          if !config
-#            puts("Configure kube-proxy...".colorize(:cyan))
-#            get_kube_proxy = "kubectl -n kube-system get ds kube-proxy -o json"
-#
-#            # Which proxy mode to use 'userspace' (older), 'iptables' (faster), 'ipvs' (experimental)
-#            mod_kube_proxy = " | jq '.spec.template.spec.containers[0].command |= .+ [\"--proxy-mode=iptables\"]'"
-#
-#            # CIDR range of pods in cluster. Essential to set so kube-proxy knows what and where to proxy
-#            mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--cluster-cidr=#{cluster_cidr}\"]'"
-#
-#            # Update kube-proxy deployment configuration and restart the service
-#            set_kube_proxy = "#{get_kube_proxy} #{mod_kube_proxy} | kubectl apply -f -"
-#            puts("exec: #{set_kube_proxy}")
-#            ssh.exec!(set_kube_proxy){|c,s,o|puts(o)}
-#            ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
-#          end
+          if !config
+            puts("Configure kube-proxy...".colorize(:cyan))
+            get_kube_proxy = "kubectl -n kube-system get ds kube-proxy -o json"
+
+            # Which proxy mode to use 'userspace' (older), 'iptables' (faster), 'ipvs' (experimental)
+            mod_kube_proxy = " | jq '.spec.template.spec.containers[0].command |= .+ [\"--proxy-mode=iptables\"]'"
+
+            # CIDR range of pods in cluster. Essential to set so kube-proxy knows what and where to proxy
+            mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--cluster-cidr=#{cluster_cidr}\"]'"
+
+            # Update kube-proxy deployment configuration and restart the service
+            set_kube_proxy = "#{get_kube_proxy} #{mod_kube_proxy} | kubectl apply -f -"
+            puts("exec: #{set_kube_proxy}")
+            ssh.exec!(set_kube_proxy){|c,s,o|puts(o)}
+            ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
+          end
 
           # Deploy Pod networking
           # CoreDNS will be in a pending state until pod networking is deployed

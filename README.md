@@ -330,7 +330,7 @@ Research:
 
 ### DNS Not Resolving <a name="dns-not-resolving"/></a>
 Now that I've solved the issue with cross node communication, DNS is still not resolving
-***kubernetes.default*** or ***kubernetes*** although google.com can be resolved.
+***kubernetes.default*** or ***kubernetes***.
 
 Research:
 * https://kubernetes.io/docs/tasks/debug-application-cluster/debug-service/#does-the-service-work-by-dns
@@ -369,7 +369,15 @@ Research:
     # search default.svc.cluster.local svc.cluster.local cluster.local
     # options ndots:5
     ```
-  * 
+* https://github.com/kubernetes/dns/issues/169
+  * Suggests that busybox nslookup may be broken so try alpine instead
+  * https://github.com/kubernetes/dns/issues/118
+    ```bash
+    kubectl exec alpine --image=alpine sh
+    ...
+    $ apk update && apk add bind-tools
+    $ dig +trace @10.96.0.10 google.com
+    ```
 <!-- 
 vim: ts=2:sw=2:sts=2
 -->
