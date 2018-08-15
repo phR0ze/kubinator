@@ -384,26 +384,33 @@ class Kubinator
           ssh.exec!("#{proxy_export}; kubectl apply -f #{podnet}"){|c,s,o|puts(o)}
           podready!('coredns', ssh:ssh)
 
-          # Network connectivity check
+          # Debug DNS using busybox
+          # See logs: sudo journalctl -u kubelet
           # https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
-          # -------------------------------------------------------------------------------
+          # Deploy: kubectl apply -f debug/busybox.yaml
+          #
+          # Check: kubectl exec busybox cat /etc/resolv.conf
+          # nameserver 10.96.0.10
+          # search default.svc.cluster.local svc.cluster.local cluster.local
+          #
+          #
           # Is DNS service up? kubectl get svc --all-namespaces
           # kubernetes  ClusterIP   10.96.0.1
           # kube-dns    ClusterIP   10.96.0.10
           #
           # connectivity: kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nc 10.96.0.10 53 -v
           # 10.96.0.10 (10.96.0.10:53) open
+          #
           # nslookup from dns pod: kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nslookup localhost
-          # works
-          # nslookup from dns pod: kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nslookup kubernetes.default
-          # doesn't work
+          #
+          # IPTables on Node
+          # suod iptables -t nat -S
+          #
+          # Network connectivity check
+          # -------------------------------------------------------------------------------
           #
           # Deploy busybox as daemonset
           # kubectl apply -f debug/busybox.yaml
-          #
-          # Check: kubectl exec busybox-m2t8q -- cat /etc/resolv.conf
-          # nameserver 10.96.0.10
-          # search default.svc.cluster.local svc.cluster.local cluster.local
           #
           # Check pod on k8snode10 to DNS: kubectl exec busybox-m2t8q -- nc 10.96.0.10 53 -v
           # 10.96.0.10 (10.96.0.10:53) open
@@ -415,18 +422,18 @@ class Kubinator
           # ** server can't find kubernetes.default: NXDOMAIN
           # 
           # *** Can't find kubernetes.default: No answer
-          #
+
           # Check pod on k8snode10 to DNS: kubectl exec busybox-p26pt -- nc 10.96.0.10 53 -v
           # nc: 10.96.0.10 (10.96.0.10:53): No route to host
           # command terminated with exit code 1
           #
           # Check lookups: kubectl exec busybox-m2t8q -- nslookup kubernetes.default
+          # Server:		10.96.0.10
+          # Address:	10.96.0.10:53
           #
-          # Summary so far:
-          # --------------------------
-          # No connectivity cross nodes
-          # DNS doesn't seem to work at all in busybox despite connectivity
-          # DNS works for localhost on CoreDNS node but not for kubernetes.default
+          # ** server can't find kubernetes.default: NXDOMAIN
+          # 
+          # *** Can't find kubernetes.default: No answer
         end
       }
     end
