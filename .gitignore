@@ -7,4 +7,5 @@ Vagrantfile
 logging-*
 Gemfile.lock
 kubectl-*
-config/*.conf
+manifest/flannel.yaml
+manifest/kubadm.yaml
