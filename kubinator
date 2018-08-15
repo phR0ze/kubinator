@@ -546,8 +546,9 @@ if __FILE__ == $0
   app = 'kubinator'
   kubinator = Kubinator.new
   version = FileUtils.version('.gemspec', /\s*spec\.version\s*=.*(\d+\.\d+\.\d+).*/)
-  examples = "1. Deploy nodes: ./#{app} deploy\n".colorize(:green)
-  examples += "2. Create cluster: ./#{app} cluster all\n".colorize(:green)
+  examples = "Deploy and cluster: ./#{app} deploy cluster all\n".colorize(:green)
+  examples += "Deploy nodes: ./#{app} deploy\n".colorize(:green)
+  examples += "Create cluster: ./#{app} cluster all\n".colorize(:green)
   cmdr = Commander.new(app:app, version:version, examples:examples)
 
   # Deploy vms

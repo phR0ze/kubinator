@@ -4,12 +4,26 @@
 <img align="left" width="48" height="48" src="https://github.com/phR0ze/cyberlinux/blob/master/art/logo_256x256.png">
 <b><i>Kubinator</i></b> is a <a href="https://github.com/phR0ze/cyberlinux">cyberlinux</a> backed project leveraging the pre-packed
 <a href="https://app.vagrantup.com/phR0ze/boxes/cyberlinux-k8snode">cyberlinux Vagrant box</a> to
-quickly deploy a configurable number of Vagrant Virtual Machines as a Kubernetes cluster in <b><i>under 10 minutes</i></b>
+quickly deploy a configurable number of Vagrant Virtual Machines as a Kubernetes cluster in <b><i>under 8 minutes</i></b>
+
+time results: `real	7m27.789s, user 0m35.066s, sys 0m24.183s`
 
 ***Kubinator*** can quickly deploy a K8s cluster with customizable VMs, manage vm snapshots and
 automate cluster customizations all from a single simple command line.
 
 [![Build Status](https://travis-ci.org/phR0ze/kubinator.svg)](https://travis-ci.org/phR0ze/kubinator)
+
+## Do it!
+
+Deploy distro dependencies:
+* [Deploy on cyberlinux](#deploy-on-cyberlinux)
+* [Deploy on Arch Linux](#deploy-on-arch-linux)
+* [Deploy on Ubuntu](#deploy-on-ubuntu)
+
+One liner to deploy your new shiny Kubernetes 1.11.2 cluster:
+```bash
+./kubinator deploy cluster all
+```
 
 Demo
 
@@ -38,7 +52,7 @@ strictly the responsiblity of the user and not the developer/creator of ***kubin
 ***Kubinator*** uses Ruby to automate the management/orchestration of the Virtual Machines backing
 the Kubernetes cluster. ***Kubinator*** orchestrates [Vagrant](https://www.vagrantup.com/intro/index.html)
 to then in turn pull the strings of [VirtualBox](https://www.virtualbox.org/). Kubinator is able to
-get a new Kubernetes cluster up and running in under 10 minutes by using a pre-built [Vagrant
+get a new Kubernetes cluster up and running in under 8 minutes by using a pre-built [Vagrant
 box](https://app.vagrantup.com/phR0ze/boxes/cyberlinux-k8snode) as the base of the Virtual Machines
 backing the K8s cluster.
 <a href="doc/images/vagrantup-k8snode.jpg"><img src="doc/images/vagrantup-k8snode.jpg"></a>
@@ -153,7 +167,7 @@ Deploying a development Kubernetes cluster with kubinator is a few simple steps:
 
 3. Deploy K8s on vagrant nodes  
   ```bash
-  ./kubinator cluster init
+  ./kubinator cluster all
   ```
 
 4. Access k8s cluster  
