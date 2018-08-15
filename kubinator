@@ -299,7 +299,7 @@ class Kubinator
       Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
         if not ssh.exec!("docker ps").include?("apiserver")
           puts(":: Initialize master node '#{ips.first}'".colorize(:cyan))
-          ssh.exec!("mkdir -p ~/.config")
+          ssh.exec!("mkdir -p ~/manifest")
 
           # Cluster cidr is required for flannel and some other pod networks.
           # https://github.com/coreos/flannel/blob/master/Documentation/kubernetes.md
@@ -311,8 +311,8 @@ class Kubinator
 
           # Execute kubeadm with config template
           if config
-            FileUtils.cp('template/kubeadm.tpl', 'config/kubeadm.conf')
-            FileUtils.resolve('config/kubeadm.conf', {
+            FileUtils.cp('template/kubeadm.tpl', 'manifest/kubeadm.yaml')
+            FileUtils.resolve('manifest/kubeadm.yaml', {
               advertise_address: ips.first,
               kubernetes_version: @k8sver,
               kube_proxy_mode: "iptables",
@@ -322,9 +322,9 @@ class Kubinator
               service_cidr: "10.96.0.0/12",     # kubeadm default: 10.96.0.0/12
               cluster_cidr: cluster_cidr        # cidr for pod networking
             })
-            Net::SCP.upload!(ips.first, @user, 'config/kubeadm.conf', '.config/kubeadm.conf',
+            Net::SCP.upload!(ips.first, @user, 'manifest/kubeadm.yaml', 'manifest/kubeadm.yaml',
               ssh:{verify_host_key: :never, password: @pass})
-            cmd = "sudo kubeadm init --config .config/kubeadm.conf"
+            cmd = "sudo kubeadm init --config manifest/kubeadm.yaml"
           else
             cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
             cmd += "--apiserver-advertise-address=#{ips.first} "
@@ -399,15 +399,15 @@ class Kubinator
           if weave
             podnet = "https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}"
           elsif flannel
-            FileUtils.cp('template/flannel.tpl', 'config/flannel.yaml')
-            FileUtils.resolve('config/flannel.yaml', {
+            FileUtils.cp('template/flannel.tpl', 'manifest/flannel.yaml')
+            FileUtils.resolve('manifest/flannel.yaml', {
               iface: "enp0s8",                  # the interface to use for inter-host communication
               backend_type: "vxlan",            # default: vxlan - backend type
               cluster_cidr: cluster_cidr        # default: 10.244.0.0/16 - cidr for pod networking
             })
-            Net::SCP.upload!(ips.first, @user, 'config/flannel.yaml', '.config/flannel.yaml',
+            Net::SCP.upload!(ips.first, @user, 'manifest/flannel.yaml', 'manifest/flannel.yaml',
               ssh:{verify_host_key: :never, password: @pass})
-            podnet = "~/.config/flannel.yaml"
+            podnet = "~/manifest/flannel.yaml"
           end
           ssh.exec!("#{proxy_export}; kubectl apply -f #{podnet}"){|c,s,o|puts(o)}
           podready!('coredns', ssh:ssh)
