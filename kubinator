@@ -214,7 +214,7 @@ class Kubinator
     }
 
     # (Idempotent) Configure nodes for clustering
-    #---------------------------------------------------------------------------
+    # ==========================================================================
     threads = []
     ips.each{|ip| threads << Thread.new{
       Net::SSH.start(ip, @user, password:@pass, verify_host_key: :never) do |ssh|
@@ -312,10 +312,11 @@ class Kubinator
     }}
     threads.each{|x| x.join}
 
-    # (Idempotent) Initialize master node
+    # (Idempotent) Initialize cluster via kubeadm
+    # ==========================================================================
     # https://kubernetes.io/docs/getting-started-guides/kubeadm
     # https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/
-    #---------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     join = nil
     if all or init
       Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
@@ -323,7 +324,7 @@ class Kubinator
           puts(":: Initialize master node '#{ips.first}'".colorize(:cyan))
 
           # Initialize cluster via kubeadm
-          # ====================================================================
+          # --------------------------------------------------------------------
           cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
 
           # Define api's location on our host-only network
@@ -374,7 +375,7 @@ class Kubinator
           ssh.exec!("kubectl taint nodes --all node-role.kubernetes.io/master-"){|c,s,o|puts(o)}
 
           # Configure kube-proxy
-          # ====================================================================
+          # --------------------------------------------------------------------
           # https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/
           # --------------------------------------------------------------------
           # Note: as kube-proxy runs as a pod created by the kubeadm process it is impossible to
@@ -414,73 +415,6 @@ class Kubinator
           podnet = "https://raw.githubusercontent.com/coreos/flannel/v0.10.0/Documentation/kube-flannel.yml" if flannel
           ssh.exec!("#{proxy_export}; kubectl apply -f #{podnet}"){|c,s,o|puts(o)}
           podready!('coredns', ssh:ssh)
-
-          # Network connectivity check
-          # Using Busybox/Nginx-demo daemonset
-          # https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
-          # sysctl -w net.bridge.bridge-nf-call-iptables=1
-          # -------------------------------------------------------------------------------
-          # Validate set: sysctl net.bridge.bridge-nf-call-iptables
-          #
-          # SSH into a node and run normal docker container:
-          # docker run --rm busybox nslookup google.com
-          # works
-          #
-          # Is DNS service up? kubectl get svc --all-namespaces
-          # kubernetes  ClusterIP   10.96.0.1
-          # kube-dns    ClusterIP   10.96.0.10
-          #
-          # Curl nginx from each node host and cross node
-          #
-          # connectivity: kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nc 10.96.0.10 53 -v
-          # 10.96.0.10 (10.96.0.10:53) open
-          # nslookup from dns pod: kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nslookup localhost
-          # works
-          # nslookup from dns pod: kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nslookup kubernetes.default
-          # doesn't work
-          #
-          # Deploy busybox as daemonset
-          # kubectl apply -f debug/busybox.yaml
-          #
-          # Check: kubectl exec busybox-m2t8q -- cat /etc/resolv.conf
-          # nameserver 10.96.0.10
-          # search default.svc.cluster.local svc.cluster.local cluster.local
-          #
-          # Check pod on k8snode10 to DNS: kubectl exec busybox-m2t8q -- nc 10.96.0.10 53 -v
-          # 10.96.0.10 (10.96.0.10:53) open
-          #
-          # Check lookups: kubectl exec busybox-m2t8q -- nslookup kubernetes.default
-          # Server:		10.96.0.10
-          # Address:	10.96.0.10:53
-          #
-          # ** server can't find kubernetes.default: NXDOMAIN
-          # 
-          # *** Can't find kubernetes.default: No answer
-          #
-          # Check pod on k8snode10 to DNS: kubectl exec busybox-p26pt -- nc 10.96.0.10 53 -v
-          # nc: 10.96.0.10 (10.96.0.10:53): No route to host
-          # command terminated with exit code 1
-          #
-          # Check lookups: kubectl exec busybox-m2t8q -- nslookup kubernetes.default
-          #
-          # Summary so far:
-          # --------------------------
-          # No connectivity cross nodes
-          # DNS doesn't seem to work at all in busybox despite connectivity
-          # DNS works for localhost on CoreDNS node but not for kubernetes.default
-          #
-          # Sources:
-          # https://github.com/kubernetes/kubernetes/issues/52783
-          # 1. suggests adding --cluster-cidr to kube-proxy
-          #    kubectl cluster-info dump | grep cidr
-            #    should show cidr but doesn't work
-            #    https://github.com/kubernetes/kubernetes/issues/65221
-            #      kubectl version --short
-            #    https://github.com/kubernetes/kubernetes/pull/66652
-            #      Downgrade to kubectl 1.10.5 and it works
-          #      --cluster-cidr=10.244.0.0/16 the flannel one
-          #
-          # https://github.com/kubernetes/kubernetes/issues/45459
         end
       }
     end

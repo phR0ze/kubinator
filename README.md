@@ -28,6 +28,9 @@ strictly the responsiblity of the user and not the developer/creator of ***kubin
   * [Deploy on Ubuntu](#deploy-on-ubuntu)
 * [Deploy Kubernetes](#deploy-kubernetes)
   * [Vagrant Node Access](#vagrant-node-access)
+* [Troubleshooting](#trouble-shooting)
+  * [Networking Validation](#networking-validation)
+  * [Cross Node Connectivity Fails](#cross-node-connectivity-fails)
 
 ## Kubinator Overview <a name="kubinator-overview"/></a>
 ***Kubinator*** uses Ruby to automate the management/orchestration of the Virtual Machines backing
@@ -172,6 +175,123 @@ ssh vagrant@192.168.56.10
 # Example scp out a file:
 scp vagrant@192.168.56.10:/etc/kubernetes/kubelet.conf .
 ```
+
+## Troubleshooting <a name="troubleshooting"/></a>
+
+### Networking Validation <a name="networking-validation"/></a>
+https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
+
+Typically if your having weird time out issues with Kubernetes, like dashboard connections timing
+out or other services timing out it is usually a networking issue. At this point the best thing to
+do is validate your networking.
+
+Shell into each of your nodes:
+```bash
+# Validate kernel networking settings below are enabled:
+sysctl net.ipv4.ip_forward
+# net.ipv4.ip_forward = 1
+sysctl net.bridge.bridge-nf-call-iptables
+# net.bridge.bridge-nf-call-iptables = 1
+
+# Validate that docker dns works
+docker run --rm busybox nslookup google.com
+# Server:		10.0.2.3
+# Address:	10.0.2.3:53
+# 
+# Non-authoritative answer:
+# Name:	google.com
+# Address: 172.217.1.206
+
+# Validate that the expected Kubernetes services are running
+kubectl get svc --all-namespaces
+# NAMESPACE     NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)         AGE
+# default       kubernetes   ClusterIP   10.96.0.1    <none>        443/TCP         3h
+# kube-system   kube-dns     ClusterIP   10.96.0.10   <none>        53/UDP,53/TCP   3h
+
+# Validate that the CoreDNS pods have connectivity to the DNS server
+kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nc 10.96.0.10 53 -v
+# 10.96.0.10 (10.96.0.10:53) open
+
+# Validate that CoreDNS can perform nslookups
+kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nslookup google.com
+# Server:		10.0.2.3
+# Address:	10.0.2.3#53
+# 
+# Non-authoritative answer:
+# Name:	google.com
+# Address: 172.217.12.14
+# Name:	google.com
+# Address: 2607:f8b0:400f:801::200e
+
+kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nslookup kubernetes.default
+# Server:		10.0.2.3
+# Address:	10.0.2.3#53
+# 
+# ** server can't find kubernetes.default: NXDOMAIN
+# 
+# command terminated with exit code 
+```
+
+From host deploy BusyBox Daemonset:
+```bash
+# Deploy BusyBox daemon set
+kubectl apply -f debug/busybox.yaml
+
+# Check /etc/resolv.conf contents
+kubectl exec busybox-m2t8q -- cat /etc/resolv.conf
+# nameserver 10.96.0.10
+# search default.svc.cluster.local svc.cluster.local cluster.local
+
+# Check pod on master node to DNS:
+kubectl exec busybox-m2t8q -- nc 10.96.0.10 53 -v
+# 10.96.0.10 (10.96.0.10:53) open
+
+# Check nslookups:
+kubectl exec busybox-m2t8q -- nslookup kubernetes.default
+# Server:		10.96.0.10
+# Address:	10.96.0.10:53
+#
+# ** server can't find kubernetes.default: NXDOMAIN
+# 
+# *** Can't find kubernetes.default: No answer
+
+# Check pod on non master node to DNS:
+kubectl exec busybox-p26pt -- nc 10.96.0.10 53 -v
+# nc: 10.96.0.10 (10.96.0.10:53): No route to host
+# command terminated with exit code 1
+
+# Check nslookups:
+kubectl exec busybox-m2t8q -- nslookup kubernetes.default
+# ;; connection timed out; no servers could be reached
+# 
+# command terminated with exit code 1
+```
+
+Summary of results:
+* No connectivity cross nodes
+* DNS doesn't seem to work at all in busybox despite connectivity
+* DNS works for localhost on CoreDNS node but not for kubernetes.default
+
+### Cross Node Connectivity Fails <a name="cross-node-connectivity-fails"/></a>
+Typically when there is a lack of connectivity across nodes it is a ***kube-proxy*** problem.
+
+Research:
+* https://github.com/kubernetes/kubernetes/issues/52783
+  * suggests adding --cluster-cidr to kube-proxy, well what cidr?
+  * Use `kubectl cluster-info dump | grep cidr` to see what current cidr is
+    * See version: `kubectl version --short`
+    * [kubectl 1.11.2 has a bug](https://github.com/kubernetes/kubernetes/pull/66652) so this doesn't work
+    * Downgrade to [kubectl 1.10.5](https://github.com/phR0ze/cyberlinux-repo/blob/f02bb33ca2538ec92c26c968bcd310026d0df86e/cyberlinux/x86_64/kubectl-1.10.5-1-x86_64.pkg.tar.xz)
+      ```bash
+      wget https://github.com/phR0ze/cyberlinux-repo/blob/f02bb33ca2538ec92c26c968bcd310026d0df86e/cyberlinux/x86_64/kubectl-1.10.5-1-x86_64.pkg.tar.xz
+      sudo pacman -U kubectl-1.10.5-1-x86_64.pkg.tar.xz
+      ```
+    * Finally get results: `--cluster-cidr=10.244.0.0/16`
+    * This is the same cidr what I gave for `--pod-network-cidr` for flannel to work
+  * When attempting to add this to ***kube-proxy*** I found out since kube-proxy is deployed as a
+    pod non of the existing documentation works. You actually need to modify the manifest of the pod
+    and restart it.
+* https://github.com/kubernetes/kubernetes/issues/45459
 
 <!-- 
 vim: ts=2:sw=2:sts=2
