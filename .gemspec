@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name        = 'kubinator'
-  spec.version     = '0.1.27'
+  spec.version     = '0.1.28'
   spec.summary     = "Deployment automation for Kubernetes"
   spec.authors     = ["Patrick Crummett"]
   spec.homepage    = 'https://github.com/phR0ze/kubinator'

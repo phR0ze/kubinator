@@ -234,50 +234,80 @@ class Kubinator
         kubelet = '/etc/default/kubelet'
         if not ssh.exec!("cat #{kubelet}").include?(ip)
           extra_args = [
+
+            # Configure ip address for node
             "--node-ip=#{ip}",
+
+            # Note this is the default
+            # Configure cluster dns to use
+            # Specific address in the kubeadm --service-cidr arg
+            #"--cluster-dns=10.96.0.10",
+            #"--cluster-domain=cluster.local",
+
+            # Cgroup driver
+            # --cgroup-driver=systemd
+
             # Seems to cause joins to fail
             #"--hostname-override=#{ip}"
           ] * ' '
           ssh.exec!("sudo sed -i -e 's/\\(KUBELET_EXTRA_ARGS=\\)\\(.*$\\)/\\1#{extra_args} \\2/' #{kubelet}")
-          ssh.exec!("sudo systemctl daemon-reload")
           ssh.exec!("sudo systemctl restart kubelet")
           puts("#{ip}: Configured Kubelet private network ip...done".colorize(:cyan))
         else
           puts("#{ip}: Configure Kubelet private network ip...skipped".colorize(:cyan))
         end
 
+        # Configure flannel ip masquerade
+        flanneld = '/etc/default/flanneld'
+        if not ssh.exec!("cat #{flanneld}").include?("ip-masq")
+          ssh.exec!("echo 'FLANNELD_OPTS=--ip-masq=true' | sudo tee #{flanneld}")
+          puts("#{ip}: Configured flanneld defaults...done".colorize(:cyan))
+        else
+          puts("#{ip}: Configure flanneld defaults...skipped".colorize(:cyan))
+        end
+
         # Configure kernel for Elasticsearch
         sysctl_conf = '/etc/sysctl.d/10-cyberlinux.conf'
         if not ssh.exec!("cat #{sysctl_conf}").include?('max_map_count')
-          ssh.exec!("sudo bash -c 'echo \"vm.max_map_count = 262144\" >> #{sysctl_conf}'")
+          ssh.exec!("echo 'vm.max_map_count = 262144' | sudo tee -a #{sysctl_conf}'")
           ssh.exec!("sudo sysctl -w vm.max_map_count=262144")
         else
           puts("#{ip}: Configure kernel params...skipped".colorize(:cyan))
         end
 
-        # Optionally - configure private registry
-        if registry
-          docker_opts = [ "--registry-mirror=http://#{registry}", "--insecure-registry #{registry}" ]
-          override_conf = '/etc/systemd/system/docker.service.d/override.conf'
-          if not ssh.exec!("[ -e #{override_conf} ] && echo 'exists'").include?('exists')
-
-            # Configure kubernetes for private registry
-            docker_conf = "{\\\"auths\\\":{\\\"#{registry}\\\":{\\\"auth\\\":\\\"YW5vbnltb3VzOmFub255bW91cw==\\\"}}}"
-            ssh.exec!("sudo bash -c 'mkdir -p /root/.docker'")
-            ssh.exec!("sudo bash -c 'echo \"#{docker_conf}\" > /root/.docker/config.json'")
-
-            # Configure docker for private registry
-            ssh.exec!("sudo bash -c 'echo \"[Service]\" > #{override_conf}'")
-            ssh.exec!("sudo bash -c 'echo \"ExecStart=\" >> #{override_conf}'")
-            ssh.exec!("sudo bash -c 'echo \"ExecStart=/usr/bin/dockerd #{docker_opts * ' '} -H fd://\" >> #{override_conf}'")
-            ssh.exec!("sudo systemctl daemon-reload")
-            ssh.exec!("sudo systemctl restart docker")
-            puts("#{ip}: Configured Docker overrides...done".colorize(:cyan))
-          else
-            puts("#{ip}: Configure Docker overrides...skipped".colorize(:cyan))
-          end
-
+        # Configure docker for K8s to manage iptables
+        # this setting tells docker to not touch iptables 
+        docker = '/etc/default/docker'
+         if not ssh.exec!("cat #{docker}").include?("iptables")
+          ssh.exec!("echo 'DOCKER_OPTS=--iptables=false' | sudo tee #{docker}")
+          ssh.exec!("sudo systemctl restart docker")
+          puts("#{ip}: Configured docker defaults...done".colorize(:cyan))
+        else
+          puts("#{ip}: Configure docker defaults...skipped".colorize(:cyan))
         end
+
+        # Optionally - configure private registry
+#        if registry
+#          docker_opts = [ "--registry-mirror=http://#{registry}", "--insecure-registry #{registry}" ]
+#          override_conf = '/etc/systemd/system/docker.service.d/override.conf'
+#          if not ssh.exec!("[ -e #{override_conf} ] && echo 'exists'").include?('exists')
+#
+#            # Configure kubernetes for private registry
+#            docker_conf = "{\\\"auths\\\":{\\\"#{registry}\\\":{\\\"auth\\\":\\\"YW5vbnltb3VzOmFub255bW91cw==\\\"}}}"
+#            ssh.exec!("sudo bash -c 'mkdir -p /root/.docker'")
+#            ssh.exec!("sudo bash -c 'echo \"#{docker_conf}\" > /root/.docker/config.json'")
+#
+#            # Configure docker for private registry
+#            ssh.exec!("sudo bash -c 'echo \"[Service]\" > #{override_conf}'")
+#            ssh.exec!("sudo bash -c 'echo \"ExecStart=\" >> #{override_conf}'")
+#            ssh.exec!("sudo bash -c 'echo \"ExecStart=/usr/bin/dockerd #{docker_opts * ' '} -H fd://\" >> #{override_conf}'")
+#            ssh.exec!("sudo systemctl daemon-reload")
+#            ssh.exec!("sudo systemctl restart docker")
+#            puts("#{ip}: Configured Docker overrides...done".colorize(:cyan))
+#          else
+#            puts("#{ip}: Configure Docker overrides...skipped".colorize(:cyan))
+#          end
+#        end
       end
     }}
     threads.each{|x| x.join}
@@ -295,7 +325,13 @@ class Kubinator
           cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
           cmd += "--apiserver-advertise-address=#{ips.first} "
 
+          # Note this is the default
+          # Range of IPs to use for service VIPs
+          # Must match range called out in kubelet --cluster-dns arg
+          #cmd += "--service-cidr=10.96.0.0/16 "
+
           # Flannel requires this to work
+          # Range of IP addresses for the pod network
           # https://github.com/coreos/flannel/blob/master/Documentation/kubernetes.md
           cmd += " --pod-network-cidr=10.244.0.0/16" if flannel
 
@@ -327,28 +363,51 @@ class Kubinator
           ssh.exec!("kubectl taint nodes --all node-role.kubernetes.io/master-"){|c,s,o|puts(o)}
 
           # Configure kube-proxy
-          # using --proxy-mode=iptables for dns resolution
+          # --proxy-mode=iptables was required for dns to resolve
           # https://github.com/kubernetes/kubernetes/issues/18934
-          puts("Patching kube-proxy...".colorize(:cyan))
-          get_kube_proxy = "kubectl -n kube-system get ds kube-proxy -o json"
-          mod_kube_proxy = " | jq '.spec.template.spec.containers[0].command |= .+ [\"--proxy-mode=iptables\"]'"
-          mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--cluster-cidr=10.32.0.0/12\"]'"
-          set_kube_proxy = " | kubectl apply -f -"
-          ssh.exec!("#{get_kube_proxy} #{mod_kube_proxy} #{set_kube_proxy}"){|c,s,o|puts(o)}
-          ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
+#          puts("Configure kube-proxy...".colorize(:cyan))
+#          get_kube_proxy = "kubectl -n kube-system get ds kube-proxy -o json"
+#          mod_kube_proxy = " | jq '.spec.template.spec.containers[0].command |= .+ [\"--proxy-mode=iptables\"]'"
+#          #mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--masquerade-all=false\"]'"
+#          mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--cluster-cidr=10.96.0.0/12\"]'"
+#          set_kube_proxy = " | kubectl apply -f -"
+#          ssh.exec!("#{get_kube_proxy} #{mod_kube_proxy} #{set_kube_proxy}"){|c,s,o|puts(o)}
+#          ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
 
-          # Install Pod networking
-          # See logs: sudo journalctl -u kubelet
-          # https://github.com/weaveworks/weave/issues/2826
-          # https://kubernetes.io/docs/concepts/cluster-administration/addons/
+          # Deploy Pod networking
+          # CoreDNS will be in a pending state until pod networking is deployed
+          # CoreDNS must be running before joining any worker nodes to the cluster
+          # https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm/#pod-network
           puts("Installing pod networking".colorize(:cyan))
           podnet = "https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}" if weave
           podnet = "https://raw.githubusercontent.com/coreos/flannel/v0.10.0/Documentation/kube-flannel.yml" if flannel
           ssh.exec!("#{proxy_export}; kubectl apply -f #{podnet}"){|c,s,o|puts(o)}
-
-          # Note: coredns will be pending until the pod networking is installed
-          # check that coredns is running with 'kubectl get po --all-namespaces'
           podready!('coredns', ssh:ssh)
+
+          # Debug DNS using busybox
+          # See logs: sudo journalctl -u kubelet
+          # https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
+          # Deploy: kubectl apply -f debug/busybox.yaml
+          #
+          # Check: kubectl exec busybox cat /etc/resolv.conf
+          # nameserver 10.96.0.10
+          # search default.svc.cluster.local svc.cluster.local cluster.local
+          #
+          # Check: kubectl exec -it busybox nslookup kubernetes.default
+          # connection timedout; no servers could be reached
+          #
+          # Connectivity from pod to DNS: kubectl exec busybox -- nc 10.96.0.10 53 -v
+          # nc: 10.96.0.10 (10.96.0.10:53): No route to host
+          # command terminated with exit code 1
+          #
+          # Is DNS service up? kubectl get svc --all-namespaces
+          # kubernetes  ClusterIP   10.96.0.1
+          # kube-dns    ClusterIP   10.96.0.10
+          #
+          # nslookup from dns pod: kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nslookup localhost
+          #
+          # IPTables on Node
+          # suod iptables -t nat -S
         end
       }
     end
@@ -382,17 +441,6 @@ class Kubinator
         podready!('scheduler', ssh:ssh)
       end
 
-      # Install dashboard
-      if all or dashboard
-        if not getpods(pod:'dashboard', ssh:ssh)
-          puts("#{ips.first}: Installing dashboard".colorize(:cyan))
-          url = "https://raw.githubusercontent.com/kubernetes/dashboard/master/src/deploy/recommended/kubernetes-dashboard.yaml"
-          puts(ssh.exec!("kubectl create -f #{url}"))
-        else
-          puts("#{ips.first}: Installing dashboard...skipped".colorize(:cyan))
-        end
-      end
-
       # Initialize/update helm
       if all or helm
         if not getpods(pod:'tiller', ssh:ssh)
@@ -404,8 +452,23 @@ class Kubinator
         end
       end
 
-      podready!('dashboard', ssh:ssh) if all or dashboard
+      # Install dashboard
+      # debug dns: kubectl run -ti --image=busybox -- sh
+      # nslookup kubernetes.default
+      if all or dashboard
+        if not getpods(pod:'dashboard', ssh:ssh)
+          puts("#{ips.first}: Installing dashboard".colorize(:cyan))
+          url = "https://raw.githubusercontent.com/kubernetes/dashboard/master/src/deploy/recommended/kubernetes-dashboard.yaml"
+          puts(ssh.exec!("kubectl create -f #{url}"))
+          puts("Access Dashboard:".colorize(:cyan))
+          puts("run: kubectl proxy".colorize(:cyan))
+          puts("#{'Navigate to:'.colorize(:cyan)} http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/")
+        else
+          puts("#{ips.first}: Installing dashboard...skipped".colorize(:cyan))
+        end
+      end
       podready!('tiller', ssh:ssh) if all or helm
+      podready!('dashboard', ssh:ssh) if all or dashboard
     }
 
     puts("Cluster creation took: #{Time.now - elapse} sec".colorize(:light_yellow))
