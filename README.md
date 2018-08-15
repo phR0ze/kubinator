@@ -254,7 +254,7 @@ kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nslookup kubernetes.defa
 From host deploy BusyBox Daemonset:
 ```bash
 # Deploy BusyBox daemon set
-kubectl apply -f config/busybox.yaml
+kubectl apply -f manifest/busybox.yaml
 
 # Check pod on master node to DNS:
 kubectl exec busybox-m2t8q -- nc 10.96.0.10 53 -v
@@ -330,7 +330,13 @@ Research:
 
 ### DNS Not Resolving <a name="dns-not-resolving"/></a>
 Now that I've solved the issue with cross node communication, DNS is still not resolving
-***kubernetes.default*** or ***kubernetes***.
+***kubernetes.default*** or ***kubernetes***. 
+
+Solution:  
+It was actually working since I fixed the node to node communication. BusyBox has some issues in its
+nslookup implementation causing it to not resolve correctly. Alpline also has a poor nslookup
+configuation that gave issues.  After deploying [cyberlinux](https://hub.docker.com/r/phr0ze/cyberlinux-net/)
+as a daemonset I was able to verify proper functionality.
 
 Research:
 * https://kubernetes.io/docs/tasks/debug-application-cluster/debug-service/#does-the-service-work-by-dns
@@ -376,11 +382,49 @@ Research:
   * Suggests that busybox nslookup may be broken so try alpine instead
   * https://github.com/kubernetes/dns/issues/118
     ```bash
-    kubectl exec alpine --image=alpine sh
-    ...
-    $ apk update && apk add bind-tools
-    $ dig +trace @10.96.0.10 google.com
+    kubectl apply -f manifest/cyberlinux.yaml
+    kubectl exec -it alpine-p7jcw sh
+    apk update && apk add bind-tools
+    dig +trace @10.96.0.10 google.com
+
+    # Lookup kubernetes
+    kubectl exec alpine-p7jcw nslookup kubernetes
+    # nslookup: can't resolve '(null)': Name does not resolve
+    # Name:      kubernetes
+    # Address 1: 10.96.0.1 kubernetes.default.svc.cluster.local
     ```
+  * Although its working alpine has flaws as well what up with ***null*** error
+  * Using a real distribution - Arch Linux based [cyberlinux](https://hub.docker.com/r/phr0ze/cyberlinux-net/)
+    ```bash
+    kubectl apply -f manifest/cyberlinux.yaml
+
+    # Lookup kubernetes
+    kubectl exec cyberlinux-bccn7 nslookup kubernetes
+    # Server:		10.96.0.10
+    # Address:	10.96.0.10#53
+    # 
+    # Name:	kubernetes.default.svc.cluster.local
+    # Address: 10.96.0.1
+
+    # Lookup kubernetes.default
+    kubectl exec cyberlinux-bccn7 nslookup kubernetes
+    # Server:		10.96.0.10
+    # Address:	10.96.0.10#53
+    # 
+    # Name:	kubernetes.default.svc.cluster.local
+    # Address: 10.96.0.1
+
+    kubectl exec cyberlinux-bccn7 nslookup google.com
+    # Server:		10.96.0.10
+    # Address:	10.96.0.10#53
+    #
+    # Non-authoritative answer:
+    # Name:	google.com
+    # Address: 172.217.12.14
+    # Name:	google.com
+    # Address: 2607:f8b0:400f:801::200e
+    ```
+
 <!-- 
 vim: ts=2:sw=2:sts=2
 -->

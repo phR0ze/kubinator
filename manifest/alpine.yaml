@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: alpine
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      name: alpine
+  template:
+    metadata:
+      labels:
+        name: alpine
+    spec:
+      containers:
+      - name: alpine
+        image: alpine
+        command:
+          - sleep
+          - "3600"
+        imagePullPolicy: IfNotPresent
+      restartPolicy: Always

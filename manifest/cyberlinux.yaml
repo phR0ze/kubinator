@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cyberlinux
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      name: cyberlinux
+  template:
+    metadata:
+      labels:
+        name: cyberlinux
+    spec:
+      containers:
+      - name: cyberlinux
+        image: phr0ze/cyberlinux-net
+        command:
+          - sleep
+          - "3600"
+        imagePullPolicy: IfNotPresent
+      restartPolicy: Always
