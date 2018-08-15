@@ -385,11 +385,21 @@ class Kubinator
           podready!('coredns', ssh:ssh)
 
           # Network connectivity check
+          # Using Busybox/Nginx-demo daemonset
           # https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
+          # sysctl -w net.bridge.bridge-nf-call-iptables=1
           # -------------------------------------------------------------------------------
+          # Validate set: sysctl net.bridge.bridge-nf-call-iptables
+          #
+          # SSH into a node and run normal docker container:
+          # docker run --rm busybox nslookup google.com
+          # works
+          #
           # Is DNS service up? kubectl get svc --all-namespaces
           # kubernetes  ClusterIP   10.96.0.1
           # kube-dns    ClusterIP   10.96.0.10
+          #
+          # Curl nginx from each node host and cross node
           #
           # connectivity: kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nc 10.96.0.10 53 -v
           # 10.96.0.10 (10.96.0.10:53) open
@@ -427,6 +437,10 @@ class Kubinator
           # No connectivity cross nodes
           # DNS doesn't seem to work at all in busybox despite connectivity
           # DNS works for localhost on CoreDNS node but not for kubernetes.default
+          #
+          # Sources:
+          # https://github.com/kubernetes/kubernetes/issues/52783
+          # https://github.com/kubernetes/kubernetes/issues/45459
         end
       }
     end
