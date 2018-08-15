@@ -32,6 +32,7 @@ strictly the responsiblity of the user and not the developer/creator of ***kubin
   * [kubeadm config](#kubeadm-config)
   * [Networking Validation](#networking-validation)
   * [Cross Node Connectivity Fails](#cross-node-connectivity-fails)
+  * [DNS Not Resolving](#dns-not-resolving)
 
 ## Kubinator Overview <a name="kubinator-overview"/></a>
 ***Kubinator*** uses Ruby to automate the management/orchestration of the Virtual Machines backing
@@ -284,12 +285,19 @@ kubectl exec busybox-m2t8q -- nslookup kubernetes.default
 ```
 
 Summary of results:
-* No connectivity cross nodes
+* No connectivity cross nodes - solved see [Cross Node Connectivity Fails](#cross-node-connectivity-fails)
 * DNS doesn't seem to work at all in busybox despite connectivity
 * DNS works for localhost on CoreDNS node but not for kubernetes.default
 
 ### Cross Node Connectivity Fails <a name="cross-node-connectivity-fails"/></a>
 Typically when there is a lack of connectivity across nodes it is a ***kube-proxy*** problem.
+
+Flannel Solution:  
+Note this issue occurred for me because I'd configured each vagrant node with a NAT interface (for
+internet connectivity) and a Host-Only interface (for node to node communication).  Flannel was
+choosing my NAT interface for node to node communication by default which obviously wouldn't work now
+that I understand what was happening.  By explicitly setting the ***--iface*** being used to my
+Host-Only node to node network this issue was resolved.
 
 Research:
 * https://github.com/kubernetes/kubernetes/issues/52783
@@ -309,16 +317,26 @@ Research:
     and restart it.
   * suggested running https://scanner.heptio.com/
     * https://scanner.heptio.com/ee168a38ae9833e522af2db4f7b5887e/
+    * was taking too long, maybe I'll revisit this someday
   * kubeadm init --pod-network-cidr= should apparently be setting the --cluster-cidr for kube-proxy
+    * I'm manually setting this post deployment using json edits to the manifest
   * Set Flannl arguments --iface and --ip-masq
-    * Tried setting in /etc/default/flanneld but since its a pod not reading that file
+    * Was going down the route of post deployment modifying when I realized that this was a
+      downloaded manifest anyway so I'll just edit first
     * Validate results
       ```bash
       kubectl -n kube-system get ds kube-flannel-ds -o json | jq '.spec.template.spec.containers[0].command'
       ```
-  * Use UDP instead of VXLAN for flannel?
-  
+    * --ip-masq was already being set, but ***--iface*** was not, I set it to my host-only iface
+      ***enp0s8*** and bingo I now have node to node communication even with ***VXLAN***
 * https://github.com/kubernetes/kubernetes/issues/45459
+
+### DNS Not Resolving <a name="dns-not-resolving"/></a>
+Now that I've solved the issue with cross node communication, DNS is still not resolving
+***kubernetes.default*** although google.com can be resolved.
+
+Research:
+* lkj
 
 <!-- 
 vim: ts=2:sw=2:sts=2
