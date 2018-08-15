@@ -373,39 +373,41 @@ class Kubinator
           # See configs kube-proxy is currently using:
           # kubectl -n kube-system get ds kube-proxy -o json | jq '.spec.template.spec.containers[0].command'
           # --------------------------------------------------------------------
-          puts("Configure kube-proxy...".colorize(:cyan))
-          get_kube_proxy = "kubectl -n kube-system get ds kube-proxy -o json"
+          if !config
+            puts("Configure kube-proxy...".colorize(:cyan))
+            get_kube_proxy = "kubectl -n kube-system get ds kube-proxy -o json"
 
-          # Which proxy mode to use 'userspace' (older), 'iptables' (faster), 'ipvs' (experimental)
-          mod_kube_proxy = " | jq '.spec.template.spec.containers[0].command |= .+ [\"--proxy-mode=iptables\"]'"
+            # Which proxy mode to use 'userspace' (older), 'iptables' (faster), 'ipvs' (experimental)
+            mod_kube_proxy = " | jq '.spec.template.spec.containers[0].command |= .+ [\"--proxy-mode=iptables\"]'"
 
-          # CIDR range of pods in cluster. Essential to set so kube-proxy knows what and where to proxy
-          mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--cluster-cidr=#{cluster_cidr}\"]'"
+            # CIDR range of pods in cluster. Essential to set so kube-proxy knows what and where to proxy
+            mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--cluster-cidr=#{cluster_cidr}\"]'"
 
-          # Update kube-proxy deployment configuration and restart the service
-          set_kube_proxy = "#{get_kube_proxy} #{mod_kube_proxy} | kubectl apply -f -"
-          puts("exec: #{set_kube_proxy}")
-          ssh.exec!(set_kube_proxy){|c,s,o|puts(o)}
-          ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
+            # Update kube-proxy deployment configuration and restart the service
+            set_kube_proxy = "#{get_kube_proxy} #{mod_kube_proxy} | kubectl apply -f -"
+            puts("exec: #{set_kube_proxy}")
+            ssh.exec!(set_kube_proxy){|c,s,o|puts(o)}
+            ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
+          end
 
           # Deploy Pod networking
           # CoreDNS will be in a pending state until pod networking is deployed
           # CoreDNS must be running before joining any worker nodes to the cluster
           # https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm/#pod-network
-          # kubectl -n kube-system get ds kube-flannel-ds -o json | '.spec.template.spec.containers[0].args'"
+          # kubectl -n kube-system get ds kube-flannel-ds -o json | '.spec.template.spec.containers[0].command'"
           puts("Installing pod networking".colorize(:cyan))
           if weave
             podnet = "https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}"
           elsif flannel
-            FileUtils.cp('template/flannel.tpl', 'config/flannel.conf')
-            FileUtils.resolve('config/flannel.conf', {
+            FileUtils.cp('template/flannel.tpl', 'config/flannel.yaml')
+            FileUtils.resolve('config/flannel.yaml', {
               iface: "enp0s8",                  # the interface to use for inter-host communication
               backend_type: "vxlan",            # default: vxlan - backend type
               cluster_cidr: cluster_cidr        # default: 10.244.0.0/16 - cidr for pod networking
             })
-            Net::SCP.upload!(ips.first, @user, 'config/flannel.conf', '.config/flannel.conf',
+            Net::SCP.upload!(ips.first, @user, 'config/flannel.yaml', '.config/flannel.yaml',
               ssh:{verify_host_key: :never, password: @pass})
-            podnet = ".config/flannel.yml"
+            podnet = "~/.config/flannel.yaml"
           end
           ssh.exec!("#{proxy_export}; kubectl apply -f #{podnet}"){|c,s,o|puts(o)}
           podready!('coredns', ssh:ssh)

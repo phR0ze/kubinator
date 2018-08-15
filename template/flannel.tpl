@@ -121,7 +121,6 @@ spec:
         image: quay.io/coreos/flannel:v0.10.0-amd64
         command:
         - /opt/bin/flanneld
-        args:
         - --ip-masq
         - --iface=<%=iface%>
         - --kube-subnet-mgr
