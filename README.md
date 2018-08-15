@@ -360,6 +360,9 @@ Research:
     # Address:	10.96.0.10:53
     # 
     # *** Can't find kubernetes.default.svc.cluster.local: No answer
+
+    # Using IP address
+    kubectl exec busybox-5hvbx -- nslookup 10.96.0.1
     ```
 
   * Validated /etc/resolv.conf looks correct
