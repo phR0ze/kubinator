@@ -7,3 +7,4 @@ Vagrantfile
 logging-*
 Gemfile.lock
 kubectl-*
+config/*.conf

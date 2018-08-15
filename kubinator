@@ -117,7 +117,7 @@ class Kubinator
     vars = OpenStruct.new
     vars.box = @box
     vars.nodes = specs.map{|x| '  ' + x.to_s} * ",\n"
-    FileUtils.cp('vagrant.tpl', 'Vagrantfile')
+    FileUtils.cp('templates/vagrant.tpl', 'Vagrantfile')
     FileUtils.resolve('Vagrantfile', vars)
 
     # Choose a vagrant box to use and update registry if needed
@@ -175,6 +175,7 @@ class Kubinator
     ips = getnodes.map{|x| x.ip}
     all = cmd.include?('all')
     init = cmd.include?('init')
+    config = cmd.include?('config')
     dashboard = cmd.include?('dashboard')
     helm = cmd.include?('helm')
     weave = cmd.include?('weave')
@@ -233,38 +234,13 @@ class Kubinator
         # Configure kubelet for each node
         kubelet = '/etc/default/kubelet'
         if not ssh.exec!("cat #{kubelet}").include?(ip)
-          extra_args = [
-
-            # Configure ip address for node
-            "--node-ip=#{ip}",
-
-            # Note this is the default
-            # Configure cluster dns to use
-            # Specific address in the kubeadm --service-cidr arg
-            #"--cluster-dns=10.96.0.10",
-            #"--cluster-domain=cluster.local",
-
-            # Cgroup driver
-            # --cgroup-driver=systemd
-
-            # Seems to cause joins to fail
-            #"--hostname-override=#{ip}"
-          ] * ' '
-          ssh.exec!("sudo sed -i -e 's/\\(KUBELET_EXTRA_ARGS=\\)\\(.*$\\)/\\1#{extra_args} \\2/' #{kubelet}")
+          args = ["--node-ip=#{ip}"] * ' '
+          ssh.exec!("sudo sed -i -e 's/\\(KUBELET_EXTRA_ARGS=\\)\\(.*$\\)/\\1#{args} \\2/' #{kubelet}")
           ssh.exec!("sudo systemctl restart kubelet")
           puts("#{ip}: Configured Kubelet private network ip...done".colorize(:cyan))
         else
           puts("#{ip}: Configure Kubelet private network ip...skipped".colorize(:cyan))
         end
-
-#        # Configure flannel ip masquerade
-#        flanneld = '/etc/default/flanneld'
-#        if not ssh.exec!("cat #{flanneld}").include?("ip-masq")
-#          ssh.exec!("echo 'FLANNELD_OPTS=--ip-masq=true' | sudo tee #{flanneld}")
-#          puts("#{ip}: Configured flanneld defaults...done".colorize(:cyan))
-#        else
-#          puts("#{ip}: Configure flanneld defaults...skipped".colorize(:cyan))
-#        end
 
         # Configure kernel for Elasticsearch
         sysctl_conf = '/etc/sysctl.d/10-cyberlinux.conf'
@@ -316,41 +292,52 @@ class Kubinator
     # ==========================================================================
     # https://kubernetes.io/docs/getting-started-guides/kubeadm
     # https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/
+    # https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/#config-file
     # --------------------------------------------------------------------------
     join = nil
     if all or init
       Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
         if not ssh.exec!("docker ps").include?("apiserver")
           puts(":: Initialize master node '#{ips.first}'".colorize(:cyan))
-
-          # Initialize cluster via kubeadm
-          # --------------------------------------------------------------------
-          cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
-
-          # Define api's location on our host-only network
-          cmd += "--apiserver-advertise-address=#{ips.first} "
+          ssh.exec!("mkdir -p ~/.config")
 
           # Cluster cidr is required for flannel and some other pod networks.
+          # https://github.com/coreos/flannel/blob/master/Documentation/kubernetes.md
           # It is the same cidr range that gets assigned to --cluster-cidr if you check with
           # 'kubectl cluster-info dump | grep cidr' and thus the same value that should be used for
           # the kube-proxy --cluster-cidr argument as well.
           cluster_cidr = "10.32.0.0/12" if weave
           cluster_cidr = "10.244.0.0/16" if flannel
 
-          # Note this is the default
-          # Range of IPs to use for service VIPs
-          # Must match range called out in kubelet --cluster-dns arg
-          #cmd += "--service-cidr=10.96.0.0/16 "
+          # Execute kubeadm with config template
+          if config
+            FileUtils.cp('templates/kubeadm.tpl', 'config/kubeadm.conf')
+            FileUtils.resolve('config/kubeadm.conf', {
+              advertise_address: ips.first,
+              kubernetes_version: @k8sver,
+              kube_proxy_mode: "iptables",
+              cgroup_driver: "cgroupfs",        # kubeadm default: cgroupfs
+              cluster_domain: "cluster.local",  # kubeadm default: cluster.local
+              cluster_dns: "10.96.0.10",        # kubeadm default: 10.96.0.10
+              service_cidr: "10.96.0.0/12",     # kubeadm default: 10.96.0.0/12
+              cluster_cidr: cluster_cidr        # cidr for pod networking
+            })
+            Net::SCP.upload!(ips.first, @user, 'config/kubeadm.conf', '.config/kubeadm.conf',
+              ssh:{verify_host_key: :never, password: @pass})
+            cmd = "sudo kubeadm init --config .config/kubeadm.conf"
 
-          # Flannel requires this to work
-          # Range of IP addresses for the pod network
-          # https://github.com/coreos/flannel/blob/master/Documentation/kubernetes.md
-          cmd += " --pod-network-cidr=#{cluster_cidr}" if flannel
+          # Execute without config
+          else
+            cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
+            cmd += "--apiserver-advertise-address=#{ips.first} "
+            cmd += "--pod-network-cidr=#{cluster_cidr}"
+          end
 
+          # Capture join for worker nodes
+          # e.g.  kubeadm join 192.168.56.10:6443 --token u6wor2.6kinrlvcbtxcoqo4 --discovery-token-ca-cert-hash
+          # sha256:1112aafe50e27d54bccfd45d956f658a18b05e8b0ccf90c264ec17b026d01a8f
           ssh.exec!(cmd){|c,s,o|
             puts(o)
-            # e.g.  kubeadm join 192.168.56.10:6443 --token u6wor2.6kinrlvcbtxcoqo4 --discovery-token-ca-cert-hash
-            # sha256:1112aafe50e27d54bccfd45d956f658a18b05e8b0ccf90c264ec17b026d01a8f
             join = o.split("\n").find{|x| x.include?("kubeadm join")}.strip if o.include?("kubeadm join")
           }
 
@@ -399,9 +386,9 @@ class Kubinator
 
           # If using iptables, SNAT all traffice sent via Service cluser IPs (not commonly needed)
           #mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--masquerade-all=false\"]'"
-          set_kube_proxy = "#{get_kube_proxy} #{mod_kube_proxy} | kubectl apply -f -"
 
           # Update kube-proxy deployment configuration and restart the service
+          set_kube_proxy = "#{get_kube_proxy} #{mod_kube_proxy} | kubectl apply -f -"
           puts("exec: #{set_kube_proxy}")
           ssh.exec!(set_kube_proxy){|c,s,o|puts(o)}
           ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
@@ -410,9 +397,20 @@ class Kubinator
           # CoreDNS will be in a pending state until pod networking is deployed
           # CoreDNS must be running before joining any worker nodes to the cluster
           # https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm/#pod-network
+          # validate results: kubectl -n kube-system get ds kube-flannel-ds -o json | '.spec.template.spec.containers[0].args'"
           puts("Installing pod networking".colorize(:cyan))
           podnet = "https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}" if weave
-          podnet = "https://raw.githubusercontent.com/coreos/flannel/v0.10.0/Documentation/kube-flannel.yml" if flannel
+          if flannel
+            FileUtils.cp('templates/flannel.tpl', 'config/flannel.conf')
+            FileUtils.resolve('config/flannel.conf', {
+              iface: "enp0s8",                  # the interface to use for inter-host communication
+              backend_type: "vxlan",            # default: vxlan - backend type
+              cluster_cidr: cluster_cidr        # default: 10.244.0.0/16 - cidr for pod networking
+            })
+            Net::SCP.upload!(ips.first, @user, 'config/flannel.conf', '~/.config/flannel.conf',
+              ssh:{verify_host_key: :never, password: @pass})
+            podnet = ".config/flannel.yml"
+          end
           ssh.exec!("#{proxy_export}; kubectl apply -f #{podnet}"){|c,s,o|puts(o)}
           podready!('coredns', ssh:ssh)
         end
@@ -600,6 +598,7 @@ if __FILE__ == $0
     Option.new(nil, 'Cluster command', required:true, type:Array, allowed:{
       all: 'Init cluster and deploy extras',
       init: 'Initialize the Kubernetes cluster',
+      config: 'Use the kubeadm config template',
       weave: 'Use the weave pod network',
       flannel: 'Use the flannel pod network',
       dashboard: 'Deploy K8s dashboard to cluster',

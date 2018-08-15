@@ -29,6 +29,7 @@ strictly the responsiblity of the user and not the developer/creator of ***kubin
 * [Deploy Kubernetes](#deploy-kubernetes)
   * [Vagrant Node Access](#vagrant-node-access)
 * [Troubleshooting](#trouble-shooting)
+  * [kubeadm config](#kubeadm-config)
   * [Networking Validation](#networking-validation)
   * [Cross Node Connectivity Fails](#cross-node-connectivity-fails)
 
@@ -178,6 +179,21 @@ scp vagrant@192.168.56.10:/etc/kubernetes/kubelet.conf .
 
 ## Troubleshooting <a name="troubleshooting"/></a>
 
+### kubeadm config <a name="kubeadm-config"/></a>
+https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-config/
+
+Creating a kubeadm config really seems to be the only way to configure all options needed to have a
+running cluster.
+
+Working with kubeadm config:
+```bash
+# Print out the current config
+sudo kubeadm config view
+
+# Print out the default config
+sudo kubeadm config print-default
+```
+
 ### Networking Validation <a name="networking-validation"/></a>
 https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
 
@@ -235,7 +251,7 @@ kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nslookup kubernetes.defa
 From host deploy BusyBox Daemonset:
 ```bash
 # Deploy BusyBox daemon set
-kubectl apply -f debug/busybox.yaml
+kubectl apply -f config/busybox.yaml
 
 # Check /etc/resolv.conf contents
 kubectl exec busybox-m2t8q -- cat /etc/resolv.conf
@@ -292,6 +308,15 @@ Research:
     pod non of the existing documentation works. You actually need to modify the manifest of the pod
     and restart it.
   * suggested running https://scanner.heptio.com/
+    * https://scanner.heptio.com/ee168a38ae9833e522af2db4f7b5887e/
+  * kubeadm init --pod-network-cidr= should apparently be setting the --cluster-cidr for kube-proxy
+  * Set Flannl arguments --iface and --ip-masq
+    * Tried setting in /etc/default/flanneld but since its a pod not reading that file
+    * Validate results
+      ```bash
+      kubectl -n kube-system get ds kube-flannel-ds -o json | jq '.spec.template.spec.containers[0].command'
+      ```
+  * Use UDP instead of VXLAN for flannel?
   
 * https://github.com/kubernetes/kubernetes/issues/45459
 
