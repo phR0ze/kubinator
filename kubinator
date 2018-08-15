@@ -117,7 +117,7 @@ class Kubinator
     vars = OpenStruct.new
     vars.box = @box
     vars.nodes = specs.map{|x| '  ' + x.to_s} * ",\n"
-    FileUtils.cp('templates/vagrant.tpl', 'Vagrantfile')
+    FileUtils.cp('template/vagrant.tpl', 'Vagrantfile')
     FileUtils.resolve('Vagrantfile', vars)
 
     # Choose a vagrant box to use and update registry if needed
@@ -231,7 +231,7 @@ class Kubinator
           puts("#{ip}: Configure node journald...skipped".colorize(:cyan))
         end
 
-        # Configure kubelet for each node
+        # Configure kubelet node ip
         kubelet = '/etc/default/kubelet'
         if not ssh.exec!("cat #{kubelet}").include?(ip)
           args = ["--node-ip=#{ip}"] * ' '
@@ -311,7 +311,7 @@ class Kubinator
 
           # Execute kubeadm with config template
           if config
-            FileUtils.cp('templates/kubeadm.tpl', 'config/kubeadm.conf')
+            FileUtils.cp('template/kubeadm.tpl', 'config/kubeadm.conf')
             FileUtils.resolve('config/kubeadm.conf', {
               advertise_address: ips.first,
               kubernetes_version: @k8sver,
@@ -325,8 +325,6 @@ class Kubinator
             Net::SCP.upload!(ips.first, @user, 'config/kubeadm.conf', '.config/kubeadm.conf',
               ssh:{verify_host_key: :never, password: @pass})
             cmd = "sudo kubeadm init --config .config/kubeadm.conf"
-
-          # Execute without config
           else
             cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
             cmd += "--apiserver-advertise-address=#{ips.first} "
@@ -384,9 +382,6 @@ class Kubinator
           # CIDR range of pods in cluster. Essential to set so kube-proxy knows what and where to proxy
           mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--cluster-cidr=#{cluster_cidr}\"]'"
 
-          # If using iptables, SNAT all traffice sent via Service cluser IPs (not commonly needed)
-          #mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--masquerade-all=false\"]'"
-
           # Update kube-proxy deployment configuration and restart the service
           set_kube_proxy = "#{get_kube_proxy} #{mod_kube_proxy} | kubectl apply -f -"
           puts("exec: #{set_kube_proxy}")
@@ -397,17 +392,18 @@ class Kubinator
           # CoreDNS will be in a pending state until pod networking is deployed
           # CoreDNS must be running before joining any worker nodes to the cluster
           # https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm/#pod-network
-          # validate results: kubectl -n kube-system get ds kube-flannel-ds -o json | '.spec.template.spec.containers[0].args'"
+          # kubectl -n kube-system get ds kube-flannel-ds -o json | '.spec.template.spec.containers[0].args'"
           puts("Installing pod networking".colorize(:cyan))
-          podnet = "https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}" if weave
-          if flannel
-            FileUtils.cp('templates/flannel.tpl', 'config/flannel.conf')
+          if weave
+            podnet = "https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}"
+          elsif flannel
+            FileUtils.cp('template/flannel.tpl', 'config/flannel.conf')
             FileUtils.resolve('config/flannel.conf', {
               iface: "enp0s8",                  # the interface to use for inter-host communication
               backend_type: "vxlan",            # default: vxlan - backend type
               cluster_cidr: cluster_cidr        # default: 10.244.0.0/16 - cidr for pod networking
             })
-            Net::SCP.upload!(ips.first, @user, 'config/flannel.conf', '~/.config/flannel.conf',
+            Net::SCP.upload!(ips.first, @user, 'config/flannel.conf', '.config/flannel.conf',
               ssh:{verify_host_key: :never, password: @pass})
             podnet = ".config/flannel.yml"
           end
