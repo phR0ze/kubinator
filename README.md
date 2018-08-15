@@ -283,7 +283,7 @@ Research:
     * [kubectl 1.11.2 has a bug](https://github.com/kubernetes/kubernetes/pull/66652) so this doesn't work
     * Downgrade to [kubectl 1.10.5](https://github.com/phR0ze/cyberlinux-repo/blob/f02bb33ca2538ec92c26c968bcd310026d0df86e/cyberlinux/x86_64/kubectl-1.10.5-1-x86_64.pkg.tar.xz)
       ```bash
-      wget https://github.com/phR0ze/cyberlinux-repo/blob/f02bb33ca2538ec92c26c968bcd310026d0df86e/cyberlinux/x86_64/kubectl-1.10.5-1-x86_64.pkg.tar.xz
+      wget https://github.com/phR0ze/cyberlinux-repo/raw/f02bb33ca2538ec92c26c968bcd310026d0df86e/cyberlinux/x86_64/kubectl-1.10.5-1-x86_64.pkg.tar.xz
       sudo pacman -U kubectl-1.10.5-1-x86_64.pkg.tar.xz
       ```
     * Finally get results: `--cluster-cidr=10.244.0.0/16`
@@ -291,6 +291,8 @@ Research:
   * When attempting to add this to ***kube-proxy*** I found out since kube-proxy is deployed as a
     pod non of the existing documentation works. You actually need to modify the manifest of the pod
     and restart it.
+  * suggested running https://scanner.heptio.com/
+  
 * https://github.com/kubernetes/kubernetes/issues/45459
 
 <!-- 

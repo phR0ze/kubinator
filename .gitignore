@@ -6,3 +6,4 @@ cyberlinux*.box
 Vagrantfile
 logging-*
 Gemfile.lock
+kubectl-*
