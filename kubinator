@@ -186,7 +186,7 @@ class Kubinator
     #---------------------------------------------------------------------------
     puts(":: Validating the K8s host environment".colorize(:cyan))
     Log.die("Ensure 'kubectl' is installed and on the $PATH") unless FileUtils.exec?('kubectl')
-    host_k8sver = `kubectl version`[/GitVersion.*v([\d]+\.[\d]+\.[\d]+)/, 1]
+    host_k8sver = `kubectl version --client`[/GitVersion.*v([\d]+\.[\d]+\.[\d]+)/, 1]
     !puts("Kubectl needs to be version #{@k8sver} or higher".colorize(:red)) and
       exit unless Gem::Version.new(host_k8sver) >= Gem::Version.new(@k8sver)
     puts("Host K8s Version: #{host_k8sver}".colorize(:green))
@@ -203,7 +203,7 @@ class Kubinator
     node_k8sver = nil
     puts("Nodes: #{ips * ', '}".colorize(:cyan))
     Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
-      node_k8sver = ssh.exec!("kubectl version")[/GitVersion.*v([\d]+\.[\d]+\.[\d]+)/, 1]
+      node_k8sver = ssh.exec!("kubectl version --client")[/GitVersion.*v([\d]+\.[\d]+\.[\d]+)/, 1]
       !puts("Node K8s needs to be version #{@k8sver} or higher".colorize(:red)) and
         exit unless Gem::Version.new(node_k8sver) >= Gem::Version.new(@k8sver)
       puts("Node K8s Version: #{node_k8sver}".colorize(:green))
