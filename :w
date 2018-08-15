@@ -1,0 +1,697 @@
+#!/usr/bin/env ruby
+#MIT License
+#Copyright (c) 2017-2018 phR0ze
+#
+#Permission is hereby granted, free of charge, to any person obtaining a copy
+#of this software and associated documentation files (the "Software"), to deal
+#in the Software without restriction, including without limitation the rights
+#to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#copies of the Software, and to permit persons to whom the Software is
+#furnished to do so, subject to the following conditions:
+#
+#The above copyright notice and this permission notice shall be included in all
+#copies or substantial portions of the Software.
+#
+#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#SOFTWARE.
+
+require 'fileutils'
+require 'open3'
+require 'ostruct'
+require 'rubygems/package'
+require 'yaml'
+
+# Gems that need to be installed
+begin
+  require 'nub'
+  require 'net/ssh'
+  require 'net/scp'
+rescue Exception => e
+  puts("Error: missing package '#{e.message.split(' ').last.sub('/', '-')}'")
+  !puts("Error: install missing packages with 'bundle install --system") and exit
+end
+
+class Kubinator
+  Node = Struct.new(:name, :ip)
+
+  # Initialize
+  # ==== Attributes
+  def initialize()
+
+    # Minimum versions
+    @k8sver = '1.11.2'
+    @helmver = '2.9.1'
+    @vagrantver = '1.8.1'
+    @virtualboxver = '5.0.32'
+
+    # Semi-static variables
+    @user = 'vagrant'
+    @pass = 'vagrant'
+    @host = 'k8snode'
+    @netname = 'vboxnet0'
+    @netip = '192.168.56.1'
+    @netmask = '255.255.255.0'
+    @box = 'phR0ze/cyberlinux-k8snode'
+  end
+
+  # Deploy vagrant node/s
+  # @param nodes [Array] of last octet ips for vms
+  # @param cpu [Int] count to use for vms
+  # @param ram [Int] amount of ram in mb for vms
+  def deploy(nodes:nil, cpu:nil, ram:nil)
+    puts(":: Deploying vagrant vms...".colorize(:light_yellow))
+
+    # Validate vagrant environment
+    #---------------------------------------------------------------------------
+    puts(":: Validating environment tooling".colorize(:cyan))
+
+    # Check that vagrant is installed and the correct version
+    Log.die("Ensure 'vagrant' is installed and on the $PATH") unless FileUtils.exec?('vagrant')
+    vagrantver = `vagrant --version`[/\d+\.\d+\.\d+/]
+    !puts("Vagrant needs to be version #{@vagrantver} or higher".colorize(:red)) and
+      exit unless Gem::Version.new(vagrantver) >= Gem::Version.new(@vagrantver)
+    puts("Found Vagrant: #{vagrantver}".colorize(:green))
+
+    # Check that vagrant/virtualbox are on the path and clean previously deployed VMs
+    Log.die("Ensure 'virtualbox' is installed and on the $PATH") unless FileUtils.exec?('vboxmanage')
+    virtualboxver = `vboxmanage --version`[/\d+\.\d+\.\d+/]
+    !puts("Virtualbox needs to be version #{@virtualboxver} or higher".colorize(:red)) and
+      exit unless Gem::Version.new(virtualboxver) >= Gem::Version.new(@virtualboxver)
+    puts("Found Virtualbox: #{virtualboxver}".colorize(:green))
+
+    # Ensure host-only network exists
+    #---------------------------------------------------------------------------
+    puts(":: Ensure host-only networking exists".colorize(:cyan))
+    config_network = "vboxmanage hostonlyif ipconfig #{@netname} -ip #{@netip} -netmask #{@netmask}"
+    if not Sys.exec(config_network, die:false)
+      Sys.exec("vboxmanage hostonlyif create")
+      Sys.exec(config_network)
+    end
+
+    # Generate vagrant node parameters
+    #---------------------------------------------------------------------------
+    specs = []
+    (nodes || (10..12)).each{|node|
+      spec = {
+        host: "#{@host}#{node}",
+        ip: "#{@netip[0..-2]}#{node}/24",
+        cpus: cpu || 2,
+        ram: ram || 2048,
+        vram: 8,
+        net: @netname,
+        v3d: 'off',
+        proxy: Net.proxy.http,
+        no_proxy: Net.proxy.no,
+        ipv6: nil
+      }
+      specs << spec
+      puts("Generating node: #{spec.to_s}".colorize(:cyan))
+    }
+
+    # Read in the template file and write out with ips
+    vars = OpenStruct.new
+    vars.box = @box
+    vars.nodes = specs.map{|x| '  ' + x.to_s} * ",\n"
+    FileUtils.cp('vagrant.tpl', 'Vagrantfile')
+    FileUtils.resolve('Vagrantfile', vars)
+
+    # Choose a vagrant box to use and update registry if needed
+    boxes = Dir[File.join(Dir.pwd, "*.box")]
+    if boxes.any?
+      puts("Updating vagrant registry for #{boxes.first.colorize(:cyan)}")
+      Sys.exec("vagrant box add #{@box} #{boxes.first} --force")
+    else
+      puts("Downloading #{@box.colorize(:cyan)} from vagrantup.com")
+    end
+
+    # Initialize vagrant box
+    #-----------------------------------------------------------------------
+    puts(":: Initializing vagrant box/s".colorize(:cyan))
+    Sys.exec("vagrant up")
+    Sys.exec("vagrant reload")
+  end
+
+  # Create a snapshot of the vms in the cluster
+  # @param cmd [String] push or pop
+  # @param snap [String] to operate on
+  def snap(cmd, snap)
+    nodes = getnodes.map{|x| x.name}
+    out = `vagrant snapshot list`
+    snaps = out.include?("No snapshots") ? [] : out.split.uniq.sort
+    curr_snap = snaps.last
+    next_snap = curr_snap ? curr_snap[0..-2] + (curr_snap[-1].to_i + 1).to_s : "snap1"
+
+    if cmd == "save"
+      puts(":: Creating snapshot for VMs [#{nodes * ','}]...".colorize(:light_yellow))
+      snap ||= next_snap
+      Sys.exec("vagrant snapshot save #{snap}")
+    elsif cmd == "restore"
+      puts(":: Restoring previous snapshot for VMs [#{nodes * ','}]...".colorize(:light_yellow))
+      snap ||= curr_snap
+      Sys.exec("vagrant snapshot restore #{snap}")
+    elsif cmd == "delete"
+      puts(":: Deleting previous snapshot for VMs [#{nodes * ','}]...".colorize(:light_yellow))
+      snap ||= curr_snap
+      Sys.exec("vagrant snapshot delete #{snap}")
+    elsif cmd == "list"
+      puts(":: Listing snapshots for VMs [#{nodes * ','}]...".colorize(:light_yellow))
+      puts(snaps)
+    end
+  end
+
+  # Create Kubernetes cluster from given nodes
+  # https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm
+  # @param cmd [String] to execute against the cluster
+  # @param registry [String] to authorize
+  def cluster(cmd, registry:nil)
+    puts(":: Deploying Kubernetes Cluster...".colorize(:light_yellow))
+    proxy_export = "[ -f /etc/profile.d/setproxy.sh ] && source /etc/profile.d/setproxy.sh"
+    elapse = Time.now
+    ips = getnodes.map{|x| x.ip}
+    all = cmd.include?('all')
+    init = cmd.include?('init')
+    dashboard = cmd.include?('dashboard')
+    helm = cmd.include?('helm')
+    weave = cmd.include?('weave')
+    flannel = cmd.include?('flannel')
+    flannel = true if !weave
+
+    # Validate host environment
+    #---------------------------------------------------------------------------
+    puts(":: Validating the K8s host environment".colorize(:cyan))
+    Log.die("Ensure 'kubectl' is installed and on the $PATH") unless FileUtils.exec?('kubectl')
+    host_k8sver = `kubectl version`[/GitVersion.*v([\d]+\.[\d]+\.[\d]+)/, 1]
+    !puts("Kubectl needs to be version #{@k8sver} or higher".colorize(:red)) and
+      exit unless Gem::Version.new(host_k8sver) >= Gem::Version.new(@k8sver)
+    puts("Host K8s Version: #{host_k8sver}".colorize(:green))
+
+    Log.die("Ensure 'helm' is installed and on the path") unless FileUtils.exec?('helm')
+    host_helmver = `helm version --client`[/\d+\.\d+\.\d+/]
+    !puts("Helm needs to be version #{@helmver} or higher".colorize(:red)) and
+      exit unless Gem::Version.new(host_helmver) >= Gem::Version.new(@helmver)
+    puts("Host Helm Version: #{host_helmver}".colorize(:green))
+
+    # Validate node environment
+    #---------------------------------------------------------------------------
+    puts(":: Validating the K8s node environment".colorize(:cyan))
+    node_k8sver = nil
+    puts("Nodes: #{ips * ', '}".colorize(:cyan))
+    Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
+      node_k8sver = ssh.exec!("kubectl version")[/GitVersion.*v([\d]+\.[\d]+\.[\d]+)/, 1]
+      !puts("Node K8s needs to be version #{@k8sver} or higher".colorize(:red)) and
+        exit unless Gem::Version.new(node_k8sver) >= Gem::Version.new(@k8sver)
+      puts("Node K8s Version: #{node_k8sver}".colorize(:green))
+
+      node_helmver = ssh.exec!("helm version --client")[/SemVer.*v([\d]+\.[\d]+\.[\d]+)/, 1]
+      !puts("Node Helm needs to be version #{@helmver} or higher".colorize(:red)) and
+        exit unless Gem::Version.new(node_helmver) >= Gem::Version.new(@helmver)
+      puts("Node Helm Version: #{node_helmver}".colorize(:green))
+    }
+
+    # (Idempotent) Configure nodes for clustering
+    #---------------------------------------------------------------------------
+    threads = []
+    ips.each{|ip| threads << Thread.new{
+      Net::SSH.start(ip, @user, password:@pass, verify_host_key: :never) do |ssh|
+        puts(":: Configure nodes for clustering".colorize(:cyan))
+
+        # Configure journald for persistent storage
+        journald_conf = '/etc/systemd/journald.conf'
+        if not ssh.exec!("cat #{journald_conf}").include?('persistent')
+          ssh.exec!("sudo sed -i -e 's/.*\\(Storage=\\).*/\\1persistent/' #{journald_conf}")
+          ssh.exec!("sudo systemctl restart systemd-journald")
+          puts("#{ip}: Configured node journald...done".colorize(:cyan))
+        else
+          puts("#{ip}: Configure node journald...skipped".colorize(:cyan))
+        end
+
+        # Configure kubelet for each node
+        kubelet = '/etc/default/kubelet'
+        if not ssh.exec!("cat #{kubelet}").include?(ip)
+          extra_args = [
+
+            # Configure ip address for node
+            "--node-ip=#{ip}",
+
+            # Note this is the default
+            # Configure cluster dns to use
+            # Specific address in the kubeadm --service-cidr arg
+            #"--cluster-dns=10.96.0.10",
+            #"--cluster-domain=cluster.local",
+
+            # Cgroup driver
+            # --cgroup-driver=systemd
+
+            # Seems to cause joins to fail
+            #"--hostname-override=#{ip}"
+          ] * ' '
+          ssh.exec!("sudo sed -i -e 's/\\(KUBELET_EXTRA_ARGS=\\)\\(.*$\\)/\\1#{extra_args} \\2/' #{kubelet}")
+          ssh.exec!("sudo systemctl restart kubelet")
+          puts("#{ip}: Configured Kubelet private network ip...done".colorize(:cyan))
+        else
+          puts("#{ip}: Configure Kubelet private network ip...skipped".colorize(:cyan))
+        end
+
+#        # Configure flannel ip masquerade
+#        flanneld = '/etc/default/flanneld'
+#        if not ssh.exec!("cat #{flanneld}").include?("ip-masq")
+#          ssh.exec!("echo 'FLANNELD_OPTS=--ip-masq=true' | sudo tee #{flanneld}")
+#          puts("#{ip}: Configured flanneld defaults...done".colorize(:cyan))
+#        else
+#          puts("#{ip}: Configure flanneld defaults...skipped".colorize(:cyan))
+#        end
+
+        # Configure kernel for Elasticsearch
+        sysctl_conf = '/etc/sysctl.d/10-cyberlinux.conf'
+        if not ssh.exec!("cat #{sysctl_conf}").include?('max_map_count')
+          ssh.exec!("echo 'vm.max_map_count = 262144' | sudo tee -a #{sysctl_conf}'")
+          ssh.exec!("sudo sysctl -w vm.max_map_count=262144")
+        else
+          puts("#{ip}: Configure kernel params...skipped".colorize(:cyan))
+        end
+
+#        # Configure docker for K8s to manage iptables
+#        # this setting tells docker to not touch iptables 
+#        docker = '/etc/default/docker'
+#         if not ssh.exec!("cat #{docker}").include?("iptables")
+#          ssh.exec!("echo 'DOCKER_OPTS=--iptables=false' | sudo tee #{docker}")
+#          ssh.exec!("sudo systemctl restart docker")
+#          puts("#{ip}: Configured docker defaults...done".colorize(:cyan))
+#        else
+#          puts("#{ip}: Configure docker defaults...skipped".colorize(:cyan))
+#        end
+
+        # Optionally - configure private registry
+#        if registry
+#          docker_opts = [ "--registry-mirror=http://#{registry}", "--insecure-registry #{registry}" ]
+#          override_conf = '/etc/systemd/system/docker.service.d/override.conf'
+#          if not ssh.exec!("[ -e #{override_conf} ] && echo 'exists'").include?('exists')
+#
+#            # Configure kubernetes for private registry
+#            docker_conf = "{\\\"auths\\\":{\\\"#{registry}\\\":{\\\"auth\\\":\\\"YW5vbnltb3VzOmFub255bW91cw==\\\"}}}"
+#            ssh.exec!("sudo bash -c 'mkdir -p /root/.docker'")
+#            ssh.exec!("sudo bash -c 'echo \"#{docker_conf}\" > /root/.docker/config.json'")
+#
+#            # Configure docker for private registry
+#            ssh.exec!("sudo bash -c 'echo \"[Service]\" > #{override_conf}'")
+#            ssh.exec!("sudo bash -c 'echo \"ExecStart=\" >> #{override_conf}'")
+#            ssh.exec!("sudo bash -c 'echo \"ExecStart=/usr/bin/dockerd #{docker_opts * ' '} -H fd://\" >> #{override_conf}'")
+#            ssh.exec!("sudo systemctl daemon-reload")
+#            ssh.exec!("sudo systemctl restart docker")
+#            puts("#{ip}: Configured Docker overrides...done".colorize(:cyan))
+#          else
+#            puts("#{ip}: Configure Docker overrides...skipped".colorize(:cyan))
+#          end
+#        end
+      end
+    }}
+    threads.each{|x| x.join}
+
+    # (Idempotent) Initialize master node
+    # https://kubernetes.io/docs/getting-started-guides/kubeadm
+    # https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/
+    #---------------------------------------------------------------------------
+    join = nil
+    if all or init
+      Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
+        if not ssh.exec!("docker ps").include?("apiserver")
+          puts(":: Initialize master node '#{ips.first}'".colorize(:cyan))
+
+          # Initialize cluster via kubeadm
+          # ====================================================================
+          cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
+
+          # Define api's location on our host-only network
+          cmd += "--apiserver-advertise-address=#{ips.first} "
+
+          # Cluster cidr is required for flannel and some other pod networks.
+          # It is the same cidr range that gets assigned to --cluster-cidr if you check with
+          # 'kubectl cluster-info dump | grep cidr' and thus the same value that should be used for
+          # the kube-proxy --cluster-cidr argument as well.
+          cluster_cidr = "10.32.0.0/12" if weave
+          cluster_cidr = "10.244.0.0/16" if flannel
+
+          # Note this is the default
+          # Range of IPs to use for service VIPs
+          # Must match range called out in kubelet --cluster-dns arg
+          #cmd += "--service-cidr=10.96.0.0/16 "
+
+          # Flannel requires this to work
+          # Range of IP addresses for the pod network
+          # https://github.com/coreos/flannel/blob/master/Documentation/kubernetes.md
+          cmd += " --pod-network-cidr=#{cluster_cidr}" if flannel
+
+          ssh.exec!(cmd){|c,s,o|
+            puts(o)
+            # e.g.  kubeadm join 192.168.56.10:6443 --token u6wor2.6kinrlvcbtxcoqo4 --discovery-token-ca-cert-hash
+            # sha256:1112aafe50e27d54bccfd45d956f658a18b05e8b0ccf90c264ec17b026d01a8f
+            join = o.split("\n").find{|x| x.include?("kubeadm join")}.strip if o.include?("kubeadm join")
+          }
+
+          # Setup kubectl on master node for both vagrant and root users
+          ssh.exec!("mkdir -p ~/.kube")
+          ssh.exec!("sudo mkdir -p /root/.kube")
+          ssh.exec!("sudo cp /etc/kubernetes/admin.conf /root/.kube/config")
+          ssh.exec!("sudo cp /etc/kubernetes/admin.conf ~/.kube/config")
+          ssh.exec!("sudo chown $(id -u):$(id -g) ~/.kube/config")
+          ssh.exec!("kubectl config use-context kubernetes-admin@kubernetes")
+          ssh.exec!("sudo kubectl config use-context kubernetes-admin@kubernetes")
+          ssh.exec!("kubectl cluster-info"){|c,s,o|puts(o)}
+
+          # Disable RBAC
+          # Bottom of https://kubernetes.io/docs/admin/authorization/rbac
+          puts("Disabling RBAC...".colorize(:cyan))
+          ssh.exec!("kubectl create clusterrolebinding permissive-binding --clusterrole=cluster-admin --user=admin --user=kubelet --group=system:serviceaccounts"){|c,s,o|puts(o)}
+
+          # Taint master node to allow pods to be scheduled on it
+          # Check current taints in Taints section: kubectl describe node
+          puts("Tainting the master node to allow pods to be scheduled on it".colorize(:cyan))
+          ssh.exec!("kubectl taint nodes --all node-role.kubernetes.io/master-"){|c,s,o|puts(o)}
+
+          # Configure kube-proxy
+          # ====================================================================
+          # https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/
+          # --------------------------------------------------------------------
+          # Note: as kube-proxy runs as a pod created by the kubeadm process it is impossible to
+          # configure it as all documentation suggests with --<param> values nor with config files
+          # for kube-proxy e.g. /var/lib/kub-proxy/config.conf. The only way to configure it is to
+          # launch kubeadm with the --config param and pass in a static kubeadm config with the 
+          # .kubeProxy.config.mode and .kubeProxy.config.clusterCIDR variables changed as deired.
+          # Alternatively one can modify the kube-proxy manifest post deploy and restart the pod.
+          # --------------------------------------------------------------------
+          # See configs kube-proxy is currently using:
+          # kubectl -n kube-system get ds kube-proxy -o json | jq '.spec.template.spec.containers[0].command'
+          # --------------------------------------------------------------------
+          puts("Configure kube-proxy...".colorize(:cyan))
+          get_kube_proxy = "kubectl -n kube-system get ds kube-proxy -o json"
+
+          # Which proxy mode to use 'userspace' (older), 'iptables' (faster), 'ipvs' (experimental)
+          mod_kube_proxy = " | jq '.spec.template.spec.containers[0].command |= .+ [\"--proxy-mode=iptables\"]'"
+
+          # CIDR range of pods in cluster. Essential to set so kube-proxy knows what and where to proxy
+          mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--cluster-cidr=#{cluster_cidr}\"]'"
+
+          # If using iptables, SNAT all traffice sent via Service cluser IPs (not commonly needed)
+          #mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--masquerade-all=false\"]'"
+          set_kube_proxy = "#{get_kube_proxy} #{mod_kube_proxy} | kubectl apply -f -"
+
+          # Update kube-proxy deployment configuration and restart the service
+          puts("exec: #{set_kube_proxy}")
+          ssh.exec!(set_kube_proxy){|c,s,o|puts(o)}
+          ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
+
+          # Deploy Pod networking
+          # CoreDNS will be in a pending state until pod networking is deployed
+          # CoreDNS must be running before joining any worker nodes to the cluster
+          # https://kubernetes.io/docs/setup/independent/create-cluster-kubeadm/#pod-network
+          puts("Installing pod networking".colorize(:cyan))
+          podnet = "https://cloud.weave.works/k8s/net?k8s-version=#{@k8sver}" if weave
+          podnet = "https://raw.githubusercontent.com/coreos/flannel/v0.10.0/Documentation/kube-flannel.yml" if flannel
+          ssh.exec!("#{proxy_export}; kubectl apply -f #{podnet}"){|c,s,o|puts(o)}
+          podready!('coredns', ssh:ssh)
+
+          # Network connectivity check
+          # Using Busybox/Nginx-demo daemonset
+          # https://kubernetes.io/docs/tasks/administer-cluster/dns-debugging-resolution/
+          # sysctl -w net.bridge.bridge-nf-call-iptables=1
+          # -------------------------------------------------------------------------------
+          # Validate set: sysctl net.bridge.bridge-nf-call-iptables
+          #
+          # SSH into a node and run normal docker container:
+          # docker run --rm busybox nslookup google.com
+          # works
+          #
+          # Is DNS service up? kubectl get svc --all-namespaces
+          # kubernetes  ClusterIP   10.96.0.1
+          # kube-dns    ClusterIP   10.96.0.10
+          #
+          # Curl nginx from each node host and cross node
+          #
+          # connectivity: kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nc 10.96.0.10 53 -v
+          # 10.96.0.10 (10.96.0.10:53) open
+          # nslookup from dns pod: kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nslookup localhost
+          # works
+          # nslookup from dns pod: kubectl -n kube-system exec coredns-78fcdf6894-mkdck -- nslookup kubernetes.default
+          # doesn't work
+          #
+          # Deploy busybox as daemonset
+          # kubectl apply -f debug/busybox.yaml
+          #
+          # Check: kubectl exec busybox-m2t8q -- cat /etc/resolv.conf
+          # nameserver 10.96.0.10
+          # search default.svc.cluster.local svc.cluster.local cluster.local
+          #
+          # Check pod on k8snode10 to DNS: kubectl exec busybox-m2t8q -- nc 10.96.0.10 53 -v
+          # 10.96.0.10 (10.96.0.10:53) open
+          #
+          # Check lookups: kubectl exec busybox-m2t8q -- nslookup kubernetes.default
+          # Server:		10.96.0.10
+          # Address:	10.96.0.10:53
+          #
+          # ** server can't find kubernetes.default: NXDOMAIN
+          # 
+          # *** Can't find kubernetes.default: No answer
+          #
+          # Check pod on k8snode10 to DNS: kubectl exec busybox-p26pt -- nc 10.96.0.10 53 -v
+          # nc: 10.96.0.10 (10.96.0.10:53): No route to host
+          # command terminated with exit code 1
+          #
+          # Check lookups: kubectl exec busybox-m2t8q -- nslookup kubernetes.default
+          #
+          # Summary so far:
+          # --------------------------
+          # No connectivity cross nodes
+          # DNS doesn't seem to work at all in busybox despite connectivity
+          # DNS works for localhost on CoreDNS node but not for kubernetes.default
+          #
+          # Sources:
+          # https://github.com/kubernetes/kubernetes/issues/52783
+          # 1. suggests adding --cluster-cidr to kube-proxy
+          #    kubectl cluster-info dump | grep cidr
+            #    should show cidr but doesn't work
+            #    https://github.com/kubernetes/kubernetes/issues/65221
+            #      kubectl version --short
+            #    https://github.com/kubernetes/kubernetes/pull/66652
+            #      Downgrade to kubectl 1.10.5 and it works
+          #      --cluster-cidr=10.244.0.0/16 the flannel one
+          #
+          # https://github.com/kubernetes/kubernetes/issues/45459
+        end
+      }
+    end
+
+    # (Idempotent) Configure slaves to join cluster
+    #---------------------------------------------------------------------------
+    if all or init
+      nodes_to_join = []
+      Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
+        puts(":: Determine nodes to join cluster...".colorize(:cyan))
+        output = getpods(ssh:ssh)
+        nodes_to_join = ips[1..-1].select{|x| !output.include?(x)}
+        puts(nodes_to_join)
+      }
+      nodes_to_join.each{|ip|
+        Net::SSH.start(ip, @user, password:@pass, verify_host_key: :never){|ssh|
+          puts("#{ip.colorize(:cyan)}: Joining cluster")
+          puts("#{ip.colorize(:cyan)}: sudo #{join}")
+          ssh.exec!("sudo #{join}"){|c,s,o|puts(o)}
+        }
+      }
+    end
+
+    # (Idempotent) Install dashboard and helm
+    #---------------------------------------------------------------------------
+    Net::SSH.start(ips.first, @user, password:@pass, verify_host_key: :never){|ssh|
+      if (all || init) && (dashboard || helm)
+        podready!('etcd', ssh:ssh)
+        podready!('apiserver', ssh:ssh)
+        podready!('controller', ssh:ssh)
+        podready!('scheduler', ssh:ssh)
+      end
+
+      # Initialize/update helm
+      if all or helm
+        if not getpods(pod:'tiller', ssh:ssh)
+          puts("#{ips.first}: Initializing helm".colorize(:cyan))
+          ssh.exec!("#{proxy_export}; helm init"){|c,s,o|puts(o)}
+          ssh.exec!("#{proxy_export}; helm repo update"){|c,s,o|puts(o)}
+        else
+          puts("#{ips.first}: Initializing/updating helm...skipped".colorize(:cyan))
+        end
+      end
+
+      # Install dashboard
+      # debug dns: kubectl run -ti --image=busybox -- sh
+      # nslookup kubernetes.default
+      if all or dashboard
+        if not getpods(pod:'dashboard', ssh:ssh)
+          puts("#{ips.first}: Installing dashboard".colorize(:cyan))
+          url = "https://raw.githubusercontent.com/kubernetes/dashboard/master/src/deploy/recommended/kubernetes-dashboard.yaml"
+          puts(ssh.exec!("kubectl create -f #{url}"))
+          puts("Access Dashboard:".colorize(:cyan))
+          puts("run: kubectl proxy".colorize(:cyan))
+          puts("#{'Navigate to:'.colorize(:cyan)} http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy/")
+        else
+          puts("#{ips.first}: Installing dashboard...skipped".colorize(:cyan))
+        end
+      end
+      podready!('tiller', ssh:ssh) if all or helm
+      podready!('dashboard', ssh:ssh) if all or dashboard
+    }
+
+    puts("Cluster creation took: #{Time.now - elapse} sec".colorize(:light_yellow))
+
+    # Configure local kubectl
+    kube_conf_dir = File.expand_path("~/.kube")
+    FileUtils.mkdir_p(kube_conf_dir) if Dir.exists?(kube_conf_dir)
+    kube_conf = File.join(kube_conf_dir, "config.kubinator")
+    FileUtils.rm_rf(kube_conf)
+    Net::SCP.download!(ips.first, @user, '.kube/config', kube_conf, ssh:{verify_host_key: :never, password: @pass})
+    Sys.exec("ln -sf ~/.kube/config.kubinator ~/.kube/config")
+    puts("#{'-' * 80}".colorize(:cyan))
+    Sys.exec("kubectl get po --all-namespaces -o wide")
+  end
+
+  # Destroy the vagrant vms
+  def destroy
+    getnodes.each{|node|
+      Sys.exec("vagrant destroy #{node.name} -f")
+    }
+  end
+
+  # Wait for the given pod to be ready
+  # Blocks until service is ready
+  # @param pod [String] name to wait for
+  # @param ssh [String] optional ssh connection to use
+  def podready!(pod, ssh:nil)
+    details = getpods(pod:pod, ssh:ssh)
+    status = details ? details[3] : "Missing"
+
+    # Skip wait if pod already running
+    if status.include?('Running')
+      puts("Waiting for '#{pod}' to be ready - Running".colorize(:cyan))
+
+    # Wait for pod to be ready
+    else
+      ready = 0
+      until ready > 1
+        !puts("Waiting for '#{pod}' to be ready - #{status}".colorize(:cyan)) and sleep(10)
+        details = getpods(pod:pod, ssh:ssh)
+        status = details ? details[3] : "Missing"
+        ready += 1 if status.include?('Running')
+      end
+    end
+  end
+
+  # Get pod details
+  # @param pod [String] name to pull details for
+  # @param ssh [String] optional ssh connection to use
+  def getpods(pod:nil, ssh:nil)
+    details = ssh ? ssh.exec!("kubectl get pod --all-namespaces -o wide") :
+      `kubectl get pod --all-namespaces -o wide`
+    if pod
+      details = details.split("\n").find{|x| x.include?(pod)}
+      details = details ? details.split(' ').map{|x| x.strip} : nil
+      return details
+    end
+    return details
+  end
+
+  # Parse the node names out of the Vagrantfile
+  # @returns [Array(Node)] list of nodes
+  def getnodes
+    nodes = []
+
+    pattern = @netip.split('.')[0..-2] * '.'
+    File.open('Vagrantfile', 'r'){|f|
+      f.readlines.each{|x|
+        if x =~ /#{pattern}.*/
+          nodes << Node.new(x[/k8snode[\d]+/], x[/#{pattern}\.\d+/])
+        end
+      }
+    }
+
+    return nodes
+  end
+end
+
+#-------------------------------------------------------------------------------
+# Main entry point
+#-------------------------------------------------------------------------------
+if __FILE__ == $0
+  app = 'kubinator'
+  kubinator = Kubinator.new
+  version = FileUtils.version('.gemspec', /\s*spec\.version\s*=.*(\d+\.\d+\.\d+).*/)
+  examples = "Deploy: ./#{app} deploy\n".colorize(:green)
+  examples += "Deploy custom: ./#{app} deploy --ips=10,11,12 --cpu=2 --ram=4096\n".colorize(:green)
+  cmdr = Commander.new(app:app, version:version, examples:examples)
+
+  # Deploy vms
+  #-----------------------------------------------------------------------------
+  cmdr.add('deploy', 'Deploy Vagrant nodes', nodes:[
+    Option.new('--nodes=NODES', 'List of last octet IPs (e.g. 10,11,2)', type:Array),
+    Option.new('--cpu=CPU', 'Number of cpus to assign a new VM', type:Integer),
+    Option.new('--ram=RAM', 'Amount of ram to assign a new VM', type:Integer),
+  ], examples: "Standard: ./#{app} deploy\n" +
+    "Custom nodes: ./#{app} deploy --ips=10,11,12 --cpu=2 --ram=4096")
+
+  # Manage vm snapshots
+  #-----------------------------------------------------------------------------
+  cmdr.add('snap', 'Manage VM snapshots', nodes:[
+    Option.new(nil, 'Snapshot command to execute', allowed:{
+      save: "Create a new snapshot",
+      restore: "Restore previous snapshot",
+      delete: "Delete previous snapshot",
+      list: "Delete previous snapshot",
+    }),
+    Option.new(nil, 'Snapshot name to use if given')
+  ], examples: "Create snapshot: ./#{app} snap save\n" +
+    "Restore previous snapshot: ./#{app} snap restore\n" +
+    "Delete previous snapshot: ./#{app} snap delete\n" +
+    "List previous snapshots: ./#{app} snap list\n")
+
+  # Destroy vms
+  #-----------------------------------------------------------------------------
+  cmdr.add('destroy', 'Destroy Vagrant nodes', nodes:[
+  ], examples: "Destroy nodes: ./#{app} destroy\n")
+
+  # Manage K8s cluster
+  #-----------------------------------------------------------------------------
+  cmdr.add('cluster', 'Kubernetes cluster control', nodes:[
+    Option.new(nil, 'Cluster command', required:true, type:Array, allowed:{
+      all: 'Init cluster and deploy extras',
+      init: 'Initialize the Kubernetes cluster',
+      weave: 'Use the weave pod network',
+      flannel: 'Use the flannel pod network',
+      dashboard: 'Deploy K8s dashboard to cluster',
+      helm: 'Deploy Helm to cluster'
+    }),
+  ], examples: "Initialize cluster: ./#{app} cluster init\n")
+    # Option.new('--registry=REGISTRY', 'Authorize the given private registry', type:String),
+    #"Private registry: ./#{app} deploy --registry=http://example.registry.com")
+
+  cmdr.parse!
+  begin
+    if cmdr[:deploy]
+      kubinator.deploy(nodes:cmdr[:deploy][:nodes], cpu:cmdr[:deploy][:cpu], ram:cmdr[:deploy][:ram])
+    end
+    if cmdr[:snap]
+      kubinator.snap(cmdr[:snap][:snap0], cmdr[:snap][:snap1])
+    end
+    if cmdr[:destroy]
+      kubinator.destroy
+    end
+    if cmdr[:cluster]
+      kubinator.cluster(cmdr[:cluster][:cluster0])
+    end
+  rescue Interrupt
+    puts("\n:: Exiting...".colorize(:light_yellow))
+  end
+end
+
+# vim: ft=ruby:ts=2:sw=2:sts=2

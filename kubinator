@@ -314,6 +314,7 @@ class Kubinator
 
     # (Idempotent) Initialize master node
     # https://kubernetes.io/docs/getting-started-guides/kubeadm
+    # https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-init/
     #---------------------------------------------------------------------------
     join = nil
     if all or init
@@ -321,9 +322,19 @@ class Kubinator
         if not ssh.exec!("docker ps").include?("apiserver")
           puts(":: Initialize master node '#{ips.first}'".colorize(:cyan))
 
-          # Initialize master
+          # Initialize cluster via kubeadm
+          # ====================================================================
           cmd = "sudo kubeadm init --kubernetes-version=v#{@k8sver} "
+
+          # Define api's location on our host-only network
           cmd += "--apiserver-advertise-address=#{ips.first} "
+
+          # Cluster cidr is required for flannel and some other pod networks.
+          # It is the same cidr range that gets assigned to --cluster-cidr if you check with
+          # 'kubectl cluster-info dump | grep cidr' and thus the same value that should be used for
+          # the kube-proxy --cluster-cidr argument as well.
+          cluster_cidr = "10.32.0.0/12" if weave
+          cluster_cidr = "10.244.0.0/16" if flannel
 
           # Note this is the default
           # Range of IPs to use for service VIPs
@@ -333,7 +344,7 @@ class Kubinator
           # Flannel requires this to work
           # Range of IP addresses for the pod network
           # https://github.com/coreos/flannel/blob/master/Documentation/kubernetes.md
-          cmd += " --pod-network-cidr=10.244.0.0/16" if flannel
+          cmd += " --pod-network-cidr=#{cluster_cidr}" if flannel
 
           ssh.exec!(cmd){|c,s,o|
             puts(o)
@@ -363,16 +374,36 @@ class Kubinator
           ssh.exec!("kubectl taint nodes --all node-role.kubernetes.io/master-"){|c,s,o|puts(o)}
 
           # Configure kube-proxy
-          # --proxy-mode=iptables was required for dns to resolve
-          # https://github.com/kubernetes/kubernetes/issues/18934
-#          puts("Configure kube-proxy...".colorize(:cyan))
-#          get_kube_proxy = "kubectl -n kube-system get ds kube-proxy -o json"
-#          mod_kube_proxy = " | jq '.spec.template.spec.containers[0].command |= .+ [\"--proxy-mode=iptables\"]'"
-#          #mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--masquerade-all=false\"]'"
-#          mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--cluster-cidr=10.32.0.0/12\"]'"
-#          set_kube_proxy = " | kubectl apply -f -"
-#          ssh.exec!("#{get_kube_proxy} #{mod_kube_proxy} #{set_kube_proxy}"){|c,s,o|puts(o)}
-#          ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
+          # ====================================================================
+          # https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/
+          # --------------------------------------------------------------------
+          # Note: as kube-proxy runs as a pod created by the kubeadm process it is impossible to
+          # configure it as all documentation suggests with --<param> values nor with config files
+          # for kube-proxy e.g. /var/lib/kub-proxy/config.conf. The only way to configure it is to
+          # launch kubeadm with the --config param and pass in a static kubeadm config with the
+          # .kubeProxy.config.mode and .kubeProxy.config.clusterCIDR variables changed as deired.
+          # Alternatively one can modify the kube-proxy manifest post deploy and restart the pod.
+          # --------------------------------------------------------------------
+          # See configs kube-proxy is currently using:
+          # kubectl -n kube-system get ds kube-proxy -o json | jq '.spec.template.spec.containers[0].command'
+          # --------------------------------------------------------------------
+          puts("Configure kube-proxy...".colorize(:cyan))
+          get_kube_proxy = "kubectl -n kube-system get ds kube-proxy -o json"
+
+          # Which proxy mode to use 'userspace' (older), 'iptables' (faster), 'ipvs' (experimental)
+          mod_kube_proxy = " | jq '.spec.template.spec.containers[0].command |= .+ [\"--proxy-mode=iptables\"]'"
+
+          # CIDR range of pods in cluster. Essential to set so kube-proxy knows what and where to proxy
+          mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--cluster-cidr=#{cluster_cidr}\"]'"
+
+          # If using iptables, SNAT all traffice sent via Service cluser IPs (not commonly needed)
+          #mod_kube_proxy += " | jq '.spec.template.spec.containers[0].command |= .+ [\"--masquerade-all=false\"]'"
+          set_kube_proxy = "#{get_kube_proxy} #{mod_kube_proxy} | kubectl apply -f -"
+
+          # Update kube-proxy deployment configuration and restart the service
+          puts("exec: #{set_kube_proxy}")
+          ssh.exec!(set_kube_proxy){|c,s,o|puts(o)}
+          ssh.exec!("kubectl -n kube-system delete po -l 'k8s-app=kube-proxy'"){|c,s,o|puts(o)}
 
           # Deploy Pod networking
           # CoreDNS will be in a pending state until pod networking is deployed
@@ -440,6 +471,15 @@ class Kubinator
           #
           # Sources:
           # https://github.com/kubernetes/kubernetes/issues/52783
+          # 1. suggests adding --cluster-cidr to kube-proxy
+          #    kubectl cluster-info dump | grep cidr
+            #    should show cidr but doesn't work
+            #    https://github.com/kubernetes/kubernetes/issues/65221
+            #      kubectl version --short
+            #    https://github.com/kubernetes/kubernetes/pull/66652
+            #      Downgrade to kubectl 1.10.5 and it works
+          #      --cluster-cidr=10.244.0.0/16 the flannel one
+          #
           # https://github.com/kubernetes/kubernetes/issues/45459
         end
       }
