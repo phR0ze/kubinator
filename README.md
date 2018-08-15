@@ -157,10 +157,12 @@ Deploying a development Kubernetes cluster with kubinator is a few simple steps:
   ```
 
 4. Access k8s cluster  
-  The deployment process will configure a ***kubernetes-admin@kubernetes*** context
+  The deployment process will download the ***KUBECONFIG*** as `~/.kube/config.kubinator` and create
+  a link as `~/.kube/config` so that ***kubectl*** commands will just work.
+
+  Example:
   ```bash
-  kubectl config use-context kubernetes-admin@kubernetes
-  # Example: kubectl get po --all-namespaces -o wide
+  kubectl get po --all-namespaces -o wide
   ```
 
 ### Node Networking <a name="node-networking"/></a>
@@ -254,11 +256,6 @@ From host deploy BusyBox Daemonset:
 # Deploy BusyBox daemon set
 kubectl apply -f config/busybox.yaml
 
-# Check /etc/resolv.conf contents
-kubectl exec busybox-m2t8q -- cat /etc/resolv.conf
-# nameserver 10.96.0.10
-# search default.svc.cluster.local svc.cluster.local cluster.local
-
 # Check pod on master node to DNS:
 kubectl exec busybox-m2t8q -- nc 10.96.0.10 53 -v
 # 10.96.0.10 (10.96.0.10:53) open
@@ -333,11 +330,46 @@ Research:
 
 ### DNS Not Resolving <a name="dns-not-resolving"/></a>
 Now that I've solved the issue with cross node communication, DNS is still not resolving
-***kubernetes.default*** although google.com can be resolved.
+***kubernetes.default*** or ***kubernetes*** although google.com can be resolved.
 
 Research:
-* lkj
+* https://kubernetes.io/docs/tasks/debug-application-cluster/debug-service/#does-the-service-work-by-dns
+  * Can't resolve DNS by the DNS service IP 10.96.0.10 or CoreDNS pod address
+  * Tried all forms of dns name qualification - all fail
+    ```bash
+    kubectl exec busybox-5hvbx -- nslookup kubernetes
+    # Server:		10.96.0.10
+    # Address:	10.96.0.10:53
+    # 
+    # ** server can't find kubernetes: NXDOMAIN
+    # 
+    # *** Can't find kubernetes: No answer
+    
+    # Namespace qualified version
+    kubectl exec busybox-5hvbx -- nslookup kubernetes.default
+    # Server:		10.96.0.10
+    # Address:	10.96.0.10:53
+    # 
+    # ** server can't find kubernetes.default: NXDOMAIN
+    # 
+    # *** Can't find kubernetes.default: No answer
+    
+    # Fully qualified version
+    kubectl exec busybox-5hvbx -- nslookup kubernetes.default.svc.cluster.local
+    # Server:		10.96.0.10
+    # Address:	10.96.0.10:53
+    # 
+    # *** Can't find kubernetes.default.svc.cluster.local: No answer
+    ```
 
+  * Validated /etc/resolv.conf looks correct
+    ```bash
+    kubectl exec busybox-m2t8q -- cat /etc/resolv.conf
+    # nameserver 10.96.0.10
+    # search default.svc.cluster.local svc.cluster.local cluster.local
+    # options ndots:5
+    ```
+  * 
 <!-- 
 vim: ts=2:sw=2:sts=2
 -->
