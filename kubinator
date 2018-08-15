@@ -251,17 +251,6 @@ class Kubinator
           puts("#{ip}: Configure kernel params...skipped".colorize(:cyan))
         end
 
-#        # Configure docker for K8s to manage iptables
-#        # this setting tells docker to not touch iptables
-#        docker = '/etc/default/docker'
-#         if not ssh.exec!("cat #{docker}").include?("iptables")
-#          ssh.exec!("echo 'DOCKER_OPTS=--iptables=false' | sudo tee #{docker}")
-#          ssh.exec!("sudo systemctl restart docker")
-#          puts("#{ip}: Configured docker defaults...done".colorize(:cyan))
-#        else
-#          puts("#{ip}: Configure docker defaults...skipped".colorize(:cyan))
-#        end
-
         # Optionally - configure private registry
 #        if registry
 #          docker_opts = [ "--registry-mirror=http://#{registry}", "--insecure-registry #{registry}" ]
@@ -557,8 +546,8 @@ if __FILE__ == $0
   app = 'kubinator'
   kubinator = Kubinator.new
   version = FileUtils.version('.gemspec', /\s*spec\.version\s*=.*(\d+\.\d+\.\d+).*/)
-  examples = "Deploy: ./#{app} deploy\n".colorize(:green)
-  examples += "Deploy custom: ./#{app} deploy --ips=10,11,12 --cpu=2 --ram=4096\n".colorize(:green)
+  examples = "1. Deploy nodes: ./#{app} deploy\n".colorize(:green)
+  examples += "2. Create cluster: ./#{app} cluster all\n".colorize(:green)
   cmdr = Commander.new(app:app, version:version, examples:examples)
 
   # Deploy vms
