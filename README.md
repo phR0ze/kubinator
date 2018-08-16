@@ -25,7 +25,7 @@ One liner to deploy your new shiny Kubernetes 1.11.2 cluster:
 ./kubinator deploy cluster all
 ```
 
-Demo
+[![Kubinator Demo](doc/images/kubinator-demo.jpg)](doc/videos/kubinator-demo-2018-08-15_19.29.41.mkv)
 
 ## Disclaimer
 ***kubinator*** comes with absolutely no guarantees or support of any kind. It is to be used at
